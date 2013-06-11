@@ -18,15 +18,24 @@
 sim(A = #attacker{}, D = #defender{}) ->
 	sim_sub(A, D, 1).
 
+%% ==============
+%% Test functions
+%% ==============
 get_test_units() -> 
+	HP = 200,
 	{
 	 #attacker{n = 2, dmg_min = 15, dmg_max = 30, accuracy = 0.8},
-	 #defender{n = 2, hp = 200, hp_remaining = 400}
+	 #defender{n = 2, hp = HP, hp_remaining = HP}
 	}.
 
 test_sim() ->
 	{A, D} = get_test_units(),
 	dict:to_list(sim(A, D)).
+
+diff_lists(A, B) ->
+	A1 = lists:sort(A),
+	B1 = lists:sort(B),
+	lists:zipwith(fun({An,P1}, {An,P2}) -> {An,(P1-P2)/P1} end, A1, B1).
 
 %% ====================================================================
 %% Internal functions
@@ -127,29 +136,32 @@ kill_defenders1(Plist, Nd, Acc) ->
 	X2 = dict:to_list(lists:foldl(fun(D, Acc1) -> dict:merge(fun add_prob/3, D, Acc1) end, dict:new(), X1)),
 	kill_defenders1(Plist, Nd-1, X2).
 
-%kill_one_defender(_,_) ->
-%	[{300, 1}];
 % How many attackers are lost after killing one defender
-kill_one_defender(A = #attacker{dmg_min = Min, dmg_max = Max}, D = #defender{hp = HP}) ->
-	Na_min = ceiling(HP/Min),
-	Na_max = ceiling(HP/Max),
-	X1 = sim_attacker_tree(1, A#attacker{n = Na_min}, D#defender{n = 1}), %inefficient, since there is no ordering of the attacks
-	X = dict:fold(fun({An, 0, 0}, P, Acc) -> [{Na_min-An, P}|Acc] end, [], X1), % there should never be any surviving defender, thus {An, 0, 0}
-	%X = kill_one_defender1(Na_max, 0, Min, Max, Acc, HP, dict:new()),
+kill_one_defender(A = #attacker{dmg_min = Min, dmg_max = Max, accuracy = Accuracy}, D = #defender{hp = HP}) ->
+	%X1 = sim_attacker_tree(1, A#attacker{n = ceiling(HP/Min)}, D#defender{n = 1, hp_remaining = HP}), %inefficient, since there is no ordering of the attacks
+	%X = dict:fold(fun({An, 0, 0}, P, Acc) -> [{ceiling(HP/Min)-An, P}|Acc] end, [], X1). % there should never be any surviving defender, thus {An, 0, 0}
+	X = kill_one_defender1(0, ceiling(HP/Min), Min, Max, Accuracy, HP, dict:new()),
 	lists:keysort(1, dict:to_list(X)).
 
-% Hit: nuber of hit attacks, Miss: number of missed attacks, Min/Max: dmg inflicted
+% Hit: number of hit attacks, Miss: number of missed attacks, Min/Max: dmg inflicted per attack
 % HP: initial hitpoints
 % Pdict: accumulating probability dict of [{lost attackers -> prob}]
-kill_one_defender1(0, Miss, Min, _, Accuracy, HP, Pdict) 
-  when Miss*Min >= HP -> 
-	dict:update_counter(Miss, math:pow(1-Accuracy, Miss), Pdict);
+kill_one_defender1(Hit, Miss, _, Max, Accuracy, HP, Pdict) 
+  when Miss =< 0, Hit*Max >= HP -> 
+	dict:update_counter(Hit, math:pow(Accuracy, Hit), Pdict);
 
 kill_one_defender1(Hit, Miss, Min, Max, Accuracy, HP, Pdict)
   when Hit*Max + Miss*Min < HP ->
-	kill_one_defender1(Hit, Miss+1, Min, Max, Accuracy, HP, Pdict);
+	kill_one_defender1(Hit+1, Miss, Min, Max, Accuracy, HP, Pdict);
 
-kill_one_defender1(Hit, Miss, Min, Max, Accuracy, HP, Pdict) ->
-	kill_one_defender1(Hit-1, Miss, Min, Max, Accuracy, HP,
-					   dict:update_counter(Hit+Miss, binom(Hit+Miss, Miss)*math:pow(Accuracy, Hit)*math:pow(1-Accuracy, Miss), Pdict)).
-	
+kill_one_defender1(Hit, Miss, Min, Max, Accuracy, HP, Pdict) 
+  when Miss > 0 ->
+	if Hit*Max + (Miss-1)*Min >= HP -> Perm_last = 1;
+	   true -> Perm_last = 0
+	end,
+	kill_one_defender1(Hit, Miss-1, Min, Max, Accuracy, HP,
+					   dict:update_counter(Hit+Miss,
+										   binom(Hit+Miss-Perm_last, max(Hit-Perm_last,0)) * 
+											   math:pow(Accuracy, Hit)*math:pow(1-Accuracy, Miss),
+										   Pdict)).
+
