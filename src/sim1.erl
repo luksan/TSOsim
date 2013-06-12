@@ -13,8 +13,10 @@
 -record(defender, {n, hp, hp_remaining}).
 -record(attacker, {n, dmg_min, dmg_max, accuracy}).
 
-%% sim/2 returns a dict of tuples ({N_attackers remaining, N_defenders_remaining, partial_HP_remaining}, propability of outcome)
+% Don't forget about the general when comparing results!
 
+
+%% sim/2 returns a dict of tuples ({N_attackers remaining, N_defenders_remaining, partial_HP_remaining}, propability of outcome)
 sim(A = #attacker{}, D = #defender{}) ->
 	sim_sub(A, D, 1).
 
@@ -22,20 +24,24 @@ sim(A = #attacker{}, D = #defender{}) ->
 %% Test functions
 %% ==============
 get_test_units() -> 
-	HP = 40000,
+	HP = 40,
 	{
 	 #attacker{n = 200, dmg_min = 15, dmg_max = 30, accuracy = 0.8},
-	 #defender{n = 2, hp = HP, hp_remaining = HP}
+	 #defender{n = 100, hp = HP, hp_remaining = HP}
 	}.
 
 test_sim() ->
 	{A, D} = get_test_units(),
-	dict:to_list(sim(A, D)).
+	X = dict:to_list(sim(A, D)),
+	lists:reverse(lists:keysort(2, X)).
 
 diff_lists(A, B) ->
 	A1 = lists:sort(A),
 	B1 = lists:sort(B),
 	lists:zipwith(fun({An,P1}, {An,P2}) -> {An,(P1-P2)/P1} end, A1, B1).
+
+sum_prob(Plist) ->
+	lists:foldl(fun({_, P}, Acc) -> P+Acc end, 0, Plist).
 
 %% ====================================================================
 %% Internal functions
@@ -72,15 +78,28 @@ add_prob(_, P1, P2) ->
 	P1+P2.
 
 % Computes part of the probability tree
-sim_sub(A = #attacker{}, D = #defender{n = Nd}, Pin) ->
-	{Nd_1, A_left1} = kill_defenders(A, D),
-	if Nd_1 == 0 -> dict:from_list(lists:map(fun({A_left, P}) -> {{A_left, 0, 0}, P*Pin} end, A_left1));
-	   Nd_1 == Nd -> sim_attacker_tree(Pin, A, D);
-	   true -> lists:map(fun({Na2, P}) -> sim_sub(A#attacker{n = Na2}, D#defender{n = Nd_1}, Pin*P) end, A_left1)
+% returns a dict of tuples ({N_attackers remaining, N_defenders_remaining, partial_HP_remaining}, propability of outcome)
+sim_sub(#attacker{n = Na}, #defender{n = Nd, hp_remaining = HL}, Pin)
+  when Na == 0; Nd == 0 ->
+	dict:from_list([{{Na, Nd, HL}, Pin}]);
+
+sim_sub(A = #attacker{}, D = #defender{n = Nd, hp = HP}, Pin) ->
+	{Nd_1, A_left1} = kill_defenders(A, D), % remove sure kills
+	if Nd_1 == 0 -> % Defenders remaining
+		   dict:from_list(lists:map(fun({A_left, P}) -> {{A_left, 0, 0}, P*Pin} end, A_left1));
+	   Nd_1 == Nd -> % No sure kills remaining
+		   X = attack_one_defender(A, D),
+		   X2 = lists:map(fun({{Na_2, Nd_2, HP_left}, P}) ->
+								  sim_sub(A#attacker{n=Na_2}, D#defender{n = Nd_2, hp_remaining = HP_left}, Pin*P)
+						  end, X),
+		   lists:foldl(fun(Pdict, Acc) -> dict:merge(fun add_prob/3, Pdict, Acc) end, dict:new(), X2);
+	   true -> % some sure kills remaining
+		   X = lists:map(fun({Na2, P}) -> sim_sub(A#attacker{n = Na2}, D#defender{n = Nd_1, hp_remaining = HP}, Pin*P) end, A_left1),
+		   lists:foldl(fun(Dict, Acc) -> dict:merge(fun add_prob/3, Dict, Acc) end , dict:new(), X)
 	end.
 
 
-% Naive top-down aproach of computing possible combat outcome. O(n^b)
+% Naive top-down aproach of computing possible combat outcome. O(2^A)
 % Returns prob dict with {N attackers remaining, N defenders remaining, HP remaining} -> probability of outcome
 sim_attacker_tree(P, #attacker{n = Na}, #defender{n = 0}) -> % no attackers or defenders remaining
 	dict:from_list([{{Na, 0, 0}, P}]);
@@ -144,21 +163,35 @@ kill_defenders1(Plist, Nd, Acc) ->
 	kill_defenders1(Plist, Nd-1, X2).
 
 % How many attackers are lost after killing one defender
-kill_one_defender(A = #attacker{dmg_min = Min}, D = #defender{hp = HP}) ->
-	An_min = min(ceiling(HP/Min), 250), % can't attack with more than 250 units
-	X = attack_one_defender(A#attacker{n = An_min}, D#defender{hp_remaining = HP}),
-	lists:map(fun({{An, 0}, P}) -> {An, P} end, X).
+kill_one_defender(A = #attacker{dmg_min = Min}, #defender{hp = HP}) ->
+	An_min = ceiling(HP/Min),
+	if An_min =< 250 -> % can't attack with more than 250 units, saves processor time
+		   X = attack_one_defender1(0, An_min, A#attacker{n = An_min}, HP, dict:new());
+	   true ->
+		   X = dict:new()
+	end,
+	dict:fold(fun({An, 0}, P, Acc) -> [{An, P} | Acc] end, [], X).
 
 % Calculate the possible outcomes of attacking one defender
-attack_one_defender(A = #attacker{n = Na}, #defender{hp_remaining = HP}) ->
-	X = attack_one_defender1(0, Na, A, HP, dict:new()),
-	lists:keysort(1, dict:to_list(X)).
+% Return prob list with [ {{attackers remaining, defenders remaining, hp_remaining}, P}  | ... ]
+attack_one_defender(A = #attacker{n = Na, dmg_min = Min}, #defender{n = Nd, hp = HP, hp_remaining = HL})
+  when Na > 0, Nd > 0 ->
+	Na_min = min(ceiling(HL/Min), Na),
+	X = attack_one_defender1(0, Na_min, A, HL, dict:new()),
+	dict:fold(fun({Na_lost, Dmg}, P, Acc) when Na_lost =< Na ->
+					  if Dmg == 0, Nd > 1 -> [{{Na-Na_lost, Nd-1, HP}, P} | Acc];
+						 Dmg == 0, Nd == 1 -> [{{Na-Na_lost, 0, 0}, P} | Acc];
+						 Dmg > 0, Dmg < HL -> [{{Na-Na_lost, Nd, HL-Dmg}, P} | Acc]
+					  end
+			  end, [], X).
+	%lists:keysort(1, dict:to_list(X)).
 
+% Initially called with Miss set to equal or less than the bare minimum to get a sure kill, ie min(ceil(HP/Min), Na)
 % Hit: number of hit attacks, Miss: number of missed attacks, Min/Max: dmg inflicted per attack
 % HP: initial hitpoints
 % Pdict: accumulating probability dict of [{lost attackers, accumulated damage} -> prob}]
 %        accumulated damage is set to zero if the unit is killed 
-attack_one_defender1(Hit, #attacker{n = Na}, _, _, Pdict) 
+attack_one_defender1(Hit, _, #attacker{n = Na}, _, Pdict) 
   when Hit > Na ->
 	Pdict;
 
@@ -166,19 +199,19 @@ attack_one_defender1(Hit, Miss, #attacker{dmg_max = Max, accuracy = Accuracy}, H
   when Miss == 0, Hit*Max >= HP -> 
 	dict:update_counter({Hit, 0}, math:pow(Accuracy, Hit), Pdict);
 
+attack_one_defender1(Hit, Miss, A=#attacker{n = Na}, HP, Pdict)
+  when Miss > 0, Hit + Miss > Na ->
+	attack_one_defender1(Hit, Miss-1, A, HP, Pdict);
+
 attack_one_defender1(Hit, Miss, A=#attacker{n = Na, dmg_min = Min, dmg_max = Max}, HP, Pdict)
-  when Hit*Max + Miss*Min < HP, Hit + Miss == Na ->
+  when Miss >= 0, Hit*Max + Miss*Min < HP, Hit + Miss == Na ->
 	P = outcome_prob(Hit, Miss, A, HP),
 	P1 = dict:update_counter({Hit+Miss, Hit*Max+Miss*Min}, P, Pdict),
 	attack_one_defender1(Hit+1, Miss, A, HP, P1);
 
 attack_one_defender1(Hit, Miss, A=#attacker{dmg_min = Min, dmg_max = Max}, HP, Pdict)
-  when Hit*Max + Miss*Min < HP ->
+  when Miss >= 0, Hit*Max + Miss*Min < HP ->
 	attack_one_defender1(Hit+1, Miss, A, HP, Pdict);
-
-attack_one_defender1(Hit, Miss, A=#attacker{n = Na}, HP, Pdict)
-  when Hit + Miss > Na ->
-	attack_one_defender1(Hit, Miss-1, A, HP, Pdict);
 
 attack_one_defender1(Hit, Miss,  A=#attacker{dmg_min = Min, dmg_max = Max}, HP, Pdict) 
   when Miss > 0, Hit*Max + Miss*Min >= HP ->
@@ -186,8 +219,10 @@ attack_one_defender1(Hit, Miss,  A=#attacker{dmg_min = Min, dmg_max = Max}, HP, 
 	P1 = dict:update_counter({Hit+Miss, 0}, P, Pdict),
 	attack_one_defender1(Hit, Miss-1, A, HP, P1).
 
+
+% Helper to calculate the combined probability of a certaion attack result, with permutations
 outcome_prob(Hit, Miss, #attacker{dmg_min = Min, dmg_max = Max, accuracy = Accuracy}, HP)
-  when Hit >= 0, Miss >= 0 ->
+  when Miss >= 0, Hit >= 0 ->
 	if Hit*Max + (Miss-1)*Min >= HP, Miss > 0 -> Perm_last = 1;
 	   true -> Perm_last = 0
 	end,
