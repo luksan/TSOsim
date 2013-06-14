@@ -163,9 +163,9 @@ kill_defenders1(Plist, Nd, Acc) ->
 	kill_defenders1(Plist, Nd-1, X2).
 
 % How many attackers are lost after killing one defender
-kill_one_defender(A = #attacker{dmg_min = Min}, #defender{hp = HP}) ->
+kill_one_defender(A = #attacker{n = Na, dmg_min = Min}, #defender{hp = HP}) ->
 	An_min = ceiling(HP/Min),
-	if An_min =< 250 -> % can't attack with more than 250 units, saves processor time
+	if An_min =< Na -> % can't attack with more than 250 units, saves processor time
 		   X = attack_one_defender1(0, An_min, A#attacker{n = An_min}, HP, dict:new());
 	   true ->
 		   X = dict:new()
