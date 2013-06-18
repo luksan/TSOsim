@@ -136,12 +136,17 @@ sim_attacker_tree(P, A = #attacker{n = Na, dmg_min = Min, dmg_max = Max, accurac
 	R2 = sim_attacker_tree(Acc*P, A#attacker{n = Na-1}, D#defender{n = Nd-1, hp_remaining = HP}), % hit
 	dict:merge(fun add_prob/3, R1, R2).
 
+% Returns the minimum number of attackers needed to get a sure kill.
+min_attackers(#attacker{dmg_min = Min}, #defender{hp = _}) when Min == 0 ->
+	5000; % Any number larger than the maximum number of units that can be assigen to a gen. Ideally +Inf
+min_attackers(#attacker{dmg_min = Min}, #defender{hp = HP}) when Min > 0 ->
+	ceiling(HP/Min).
 
 % Remove defenders that will die for sure, due to number of attackers
 % Return tuple {# of defenders remaining, probability list with number of remaining attackers}
-kill_defenders(A = #attacker{n = Na, dmg_min = Min}, D = #defender{n = Nd, hp = HP}) ->
+kill_defenders(A = #attacker{n = Na}, D = #defender{n = Nd}) ->
 	Kill_prob = kill_one_defender(A, D),
-	D_loss = min(trunc(Na/ceiling(HP/Min)), Nd),
+	D_loss = min(trunc(Na/min_attackers(A, D)), Nd),
 	A_lost = kill_defenders1(Kill_prob, D_loss, Kill_prob),
 	A_left = lists:map(fun({Aloss, P}) -> {Na-Aloss, P} end, A_lost),
 	{Nd - D_loss, A_left}.
@@ -163,10 +168,10 @@ kill_defenders1(Plist, Nd, Acc) ->
 	kill_defenders1(Plist, Nd-1, X2).
 
 % How many attackers are lost after killing one defender
-kill_one_defender(A = #attacker{n = Na, dmg_min = Min}, #defender{hp = HP}) ->
-	An_min = ceiling(HP/Min),
-	if An_min =< Na -> % can't attack with more than 250 units, saves processor time
-		   X = attack_one_defender1(0, An_min, A#attacker{n = An_min}, HP, dict:new());
+kill_one_defender(A = #attacker{n = Na}, D = #defender{hp = HP}) ->
+	Na_min = min_attackers(A, D),
+	if Na_min =< Na -> % can't attack with more than 250 units, saves processor time
+		   X = attack_one_defender1(0, Na_min, A#attacker{n = Na_min}, HP, dict:new());
 	   true ->
 		   X = dict:new()
 	end,
@@ -174,9 +179,9 @@ kill_one_defender(A = #attacker{n = Na, dmg_min = Min}, #defender{hp = HP}) ->
 
 % Calculate the possible outcomes of attacking one defender
 % Return prob list with [ {{attackers remaining, defenders remaining, hp_remaining}, P}  | ... ]
-attack_one_defender(A = #attacker{n = Na, dmg_min = Min}, #defender{n = Nd, hp = HP, hp_remaining = HL})
+attack_one_defender(A = #attacker{n = Na}, D = #defender{n = Nd, hp = HP, hp_remaining = HL})
   when Na > 0, Nd > 0 ->
-	Na_min = min(ceiling(HL/Min), Na),
+	Na_min = min(min_attackers(A, D), Na),
 	X = attack_one_defender1(0, Na_min, A, HL, dict:new()),
 	dict:fold(fun({Na_lost, Dmg}, P, Acc) when Na_lost =< Na ->
 					  if Dmg == 0, Nd > 1 -> [{{Na-Na_lost, Nd-1, HP}, P} | Acc];
