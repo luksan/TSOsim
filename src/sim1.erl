@@ -18,7 +18,7 @@
 
 %% sim/2 returns a dict of tuples ({N_attackers remaining, N_defenders_remaining, partial_HP_remaining}, propability of outcome)
 sim(A = #attacker{}, D = #defender{}) ->
-	sim_sub(A, D, 1).
+	dict:from_list(sim_sub(A, D, 1)).
 
 %% ==============
 %% Test functions
@@ -58,12 +58,12 @@ ceiling(X) ->
     end.
 
 % Computes the binomial coefficient N over K
-binom(N, 0) when is_integer(N), N >= 0->
-	1;
-binom(0, K) when is_integer(K), K >= 0->
-	0;
 binom(K, K) ->
 	1;
+binom(N, 0) when is_integer(N), N > 0 ->
+	1;
+binom(0, K) when is_integer(K), K > 0 ->
+	0;
 binom(N, 1) ->
 	N;
 binom(N, K) when is_integer(N), is_integer(K), (N >= 0), (K >= 1), (N >= K) ->
@@ -77,25 +77,39 @@ binom(N, K, I, Acc) ->
 add_prob(_, P1, P2) ->
 	P1+P2.
 
+merge_pdict_list(List) ->
+	lists:foldl(fun(Pdict, Acc) -> dict:merge(fun add_prob/3, Pdict, Acc) end, dict:new(), List).
+
+merge_ordpdict_list(List) ->
+	lists:foldl(fun(Pdict, Acc) -> orddict:merge(fun add_prob/3, Pdict, Acc) end, orddict:new(), List).
+
+% Compute the multinomial coefficient N over [k1,k2,...,kn]
+multinom(N, K) ->
+	multinom(N, K, 0, 1).
+multinom(_N, [], _Kprev, Acc) ->
+	Acc;
+multinom(N, [Ki|K], K_prev_sum, Acc) ->
+	multinom(N, K, Ki+K_prev_sum, Acc * binom(Ki+K_prev_sum, Ki)).
+
 % Computes part of the probability tree
 % returns a dict of tuples ({N_attackers remaining, N_defenders_remaining, partial_HP_remaining}, propability of outcome)
 sim_sub(#attacker{n = Na}, #defender{n = Nd, hp_remaining = HL}, Pin)
   when Na == 0; Nd == 0 ->
-	dict:from_list([{{Na, Nd, HL}, Pin}]);
+	%dict:from_list([{{Na, Nd, HL}, Pin}]);
+	[{{Na, Nd, HL}, Pin}];
 
 sim_sub(A = #attacker{}, D = #defender{n = Nd, hp = HP}, Pin) ->
-	{Nd_1, A_left1} = kill_defenders(A, D), % remove sure kills
-	if Nd_1 == 0 -> % Defenders remaining
-		   dict:from_list(lists:map(fun({A_left, P}) -> {{A_left, 0, 0}, P*Pin} end, A_left1));
-	   Nd_1 == Nd -> % No sure kills remaining
-		   X = attack_one_defender(A, D),
-		   X2 = lists:map(fun({{Na_2, Nd_2, HP_left}, P}) ->
-								  sim_sub(A#attacker{n=Na_2}, D#defender{n = Nd_2, hp_remaining = HP_left}, Pin*P)
-						  end, X),
-		   lists:foldl(fun(Pdict, Acc) -> dict:merge(fun add_prob/3, Pdict, Acc) end, dict:new(), X2);
-	   true -> % some sure kills remaining
-		   X = lists:map(fun({Na2, P}) -> sim_sub(A#attacker{n = Na2}, D#defender{n = Nd_1, hp_remaining = HP}, Pin*P) end, A_left1),
-		   lists:foldl(fun(Dict, Acc) -> dict:merge(fun add_prob/3, Dict, Acc) end , dict:new(), X)
+	case kill_defenders(A, D) of % remove sure kills
+		{0, A_left1} -> % No defenders remaining
+			orddict:from_list(lists:map(fun({A_left, P}) -> {{A_left, 0, 0}, P*Pin} end, A_left1));
+		{Nd, _} -> % No sure kills remaining
+			X = lists:map(fun({{Na_2, Nd_2, HP_left}, P}) -> % list of Pdicts from sim_sub/3
+								   sim_sub(A#attacker{n = Na_2}, D#defender{n = Nd_2, hp_remaining = HP_left}, Pin*P)
+						   end, attack_one_defender(A, D)),
+			merge_ordpdict_list(X);
+		{Nd_1, A_left1} -> % some sure kills remaining
+			X = lists:map(fun({Na2, P}) -> sim_sub(A#attacker{n = Na2}, D#defender{n = Nd_1, hp_remaining = HP}, Pin*P) end, A_left1),
+			merge_ordpdict_list(X)
 	end.
 
 
@@ -159,12 +173,12 @@ kill_defenders1(_, Nd, Acc) when Nd == 1 ->
 	Acc;
 kill_defenders1(Plist, Nd, Acc) ->
 	X1 = lists:map(fun({A_lost_plist, P_plist}) -> % list of dicts
-					   dict:from_list(lists:map(fun({A_lost_acc, P_acc}) ->
+					   orddict:from_list(lists:map(fun({A_lost_acc, P_acc}) ->
 													{A_lost_plist+A_lost_acc, P_plist*P_acc}
 												end,
 									  			Acc))
 				   end, Plist),
-	X2 = dict:to_list(lists:foldl(fun(D, Acc1) -> dict:merge(fun add_prob/3, D, Acc1) end, dict:new(), X1)),
+	X2 = orddict:to_list(merge_ordpdict_list(X1)),
 	kill_defenders1(Plist, Nd-1, X2).
 
 % How many attackers are lost after killing one defender
