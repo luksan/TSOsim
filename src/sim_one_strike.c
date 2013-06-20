@@ -30,7 +30,7 @@ parray_t attack_one_defender(attacker_t A, defender_t D);
 plist_t * kill_defenders(attacker_t A, defender_t D);
 static plist_t * for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in);
 static int sure_kills(attacker_t A, defender_t D);
-static int attack_one_defender1(int n_sure_kill, attacker_t A, defender_t D, parray_t parr);
+static int attack_one_defender1(const int n_sure_kill, attacker_t A, const int hp, parray_t parr);
 plist_t * sim_sub(attacker_t A, defender_t D, double p_in);
 
 typedef unsigned long ULONG;
@@ -124,7 +124,7 @@ static int cmp_terms(const void *p1, const void *p2)
 plist_t * kill_defenders(attacker_t A, defender_t D)
 {
 	parray_t kill_prob;
-	int dloss, i,j, p1_i, p2_i, p0_len, p1_len, k_len;
+	int dloss, i,j, p1_i, p2_i, p0_len, p1_len;
 	
 	p_term *p0, *p1, *p2, *pt;
 	dloss = sure_kills(A, D);
@@ -141,14 +141,14 @@ plist_t * kill_defenders(attacker_t A, defender_t D)
 			p0_len++;
 		}
 	}
-	p1_len = binomial(dloss+k_len-1, dloss)+1;
+	p1_len = binomial(dloss+p0_len-1, dloss)+1;
 	p1 = realloc(p1, p1_len*sizeof(p_term));
 	p1[p0_len].n = 0;
 	p2 = calloc(p1_len, sizeof(p_term));
 	for (i = 1; i < dloss; i++) { // multiply polynomials
 		p2_i = 0;
-		for (p1_i = 0; p1[p1_i].n > 0; p1_i++) {
-			for (j = 0; j < k_len; j++) {
+		for (p1_i = 0; p1_i < p1_len; p1_i++) {
+			for (j = 0; j < p0_len; j++) {
 				p2[p2_i].n = p0[j].n + p1[p1_i].n;
 				p2[p2_i].p = p0[j].p * p1[p1_i].p;
 				p2_i++;
@@ -182,16 +182,13 @@ plist_t * kill_defenders(attacker_t A, defender_t D)
 parray_t kill_one_defender(attacker_t A, defender_t D)
 {
 	int Na_min = min_attackers(A->dmg_min, D->hp);
-	int hpr = D->hp_remaining;
 	int i;
 	parray_t parr;
 	if (Na_min > A->n)
 		return NULL;
 
 	parr = new_parray(Na_min);
-	D->hp_remaining = D->hp;
-	attack_one_defender1(Na_min, A, D, parr);
-	D->hp_remaining = hpr;
+	attack_one_defender1(Na_min, A, D->hp, parr);
 	for (i = 0; i < parr->len; i++) {
 		if (!parr->a[i])
 			continue;
@@ -207,15 +204,12 @@ parray_t attack_one_defender(attacker_t A, defender_t D)
 	plist_t *p;
 	Na_min = min(min_attackers(A->dmg_min, D->hp), A->n);
 	parray_t pa = new_parray(Na_min);
-	attack_one_defender1(Na_min, A, D, pa);
-	print_parray(pa);
-	printf("%i, %i\n", A->n, D->n);
+	attack_one_defender1(Na_min, A, D->hp_remaining, pa);
 	for (i = 0; i < pa->len; i++)
 		for (p = pa->a[i]; p; p = p->next) {
 			p->Na = A->n - p->Na;
-			p->Na = D->n - p->Nd;
+			p->Nd = D->n - p->Nd;
 		}
-	print_parray(pa);
 	return pa;
 }
 
@@ -242,25 +236,22 @@ static double outcome_prob(int hit, int miss, attacker_t A, int hp)
 	return exp(B+H+M);
 }
 
-static int attack_one_defender1(int n_sure_kill, attacker_t A, defender_t D, parray_t parr)
+static int attack_one_defender1(const int n_sure_kill, attacker_t A, const int hp, parray_t parr)
 {
-	int hit = 0, dmg, hp, miss;
+	int hit = 0, dmg, miss;
 	double p;
-	hp = D->hp_remaining;
 	miss = n_sure_kill;
 	while (hit <= n_sure_kill) {
-		if (hit + miss > n_sure_kill) {
+		while (hit + miss > n_sure_kill)
 			miss--;
-			continue;
-		}
-		dmg = hit*A->dmg_max, + miss*A->dmg_min;
+		dmg = hit*A->dmg_max + miss*A->dmg_min;
 		p = outcome_prob(hit, miss, A, hp);
 		if (dmg < hp) {
 			if (hit + miss == n_sure_kill)
-				parray_incr_p(hit+miss, 0, hp - dmg, p, parr);
+				parray_incr_p(hit+miss, 0, dmg, p, parr);
 			hit++;
 		} else {
-			parray_incr_p(hit+miss, 1, D->hp, p, parr);
+			parray_incr_p(hit+miss, 1, 0, p, parr);
 			if (miss == 0)
 				return 1;
 			miss--;
@@ -330,12 +321,12 @@ int main(int argc, char **argv)
 	plist_t *p;
 	parray_t pa;
 	//pa = kill_one_defender(&A, &D);
-	pa = attack_one_defender(&A, &D);
-	print_parray(pa);
-	printf("OK\n");
+	//pa = attack_one_defender(&A, &D);
+	//print_parray(pa);
 	//p = sim(&A, &D);
-	//p = kill_defenders(&A, &D);
-	//print_plist(p);
+	p = kill_defenders(&A, &D);
+	print_plist(p);
+	printf("OK\n");
 	return 0;
 }
 
