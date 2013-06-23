@@ -7,9 +7,16 @@
 
 static plist_t * free_p_element(plist_t *p)
 {
+	if (!p)
+		return NULL;
 	plist_t *n = p->next;
 	free(p);
 	return n;
+}
+
+void plist_free(plist_t *p)
+{
+	while ((p = free_p_element(p)));
 }
 
 parray_t new_parray(int len)
@@ -22,11 +29,21 @@ parray_t new_parray(int len)
 	return l;
 }
 
-void set_p_element(plist_t *elem, int Na, int Nd, int dmg, double p, plist_t *next)
+void parray_free(parray_t pa)
+{
+	int i;
+	if (!pa)
+		return;
+	for (i = 0; i < pa->len; i++)
+		plist_free(pa->a[i]);
+	free(pa);
+}
+
+void set_p_element(plist_t *elem, int Na, int Nd, int hp_remaining, double p, plist_t *next)
 {
 	elem->Na = Na;
 	elem->Nd = Nd;
-	elem->dmg = dmg;
+	elem->hp_remaining = hp_remaining;
 	elem->p = p;
 	elem->next = next;
 };
@@ -37,7 +54,7 @@ static plist_t * copy_p_element(plist_t *elem) {
 	return new;
 };
 
-void parray_incr_p(int Na, int Nd, int dmg, double p, parray_t plist)
+void parray_incr_p(int Na, int Nd, int hp_remaining, double p, parray_t plist)
 {
 	plist_t  *curr, *new, **old_next;
 	if (Na > plist->len) {
@@ -45,13 +62,13 @@ void parray_incr_p(int Na, int Nd, int dmg, double p, parray_t plist)
 		return;
 	}
 	old_next = &plist->a[Na];
-	for (curr = *old_next; curr && curr->dmg < dmg; old_next = &curr->next, curr = curr->next);
-	if (curr && curr->dmg == dmg) {
+	for (curr = *old_next; curr && curr->hp_remaining < hp_remaining; old_next = &curr->next, curr = curr->next);
+	if (curr && curr->hp_remaining == hp_remaining) {
 		curr->p += p;
 		return;
 	}
 	new = new_plist();
-	set_p_element(new, Na, Nd, dmg, p, curr);
+	set_p_element(new, Na, Nd, hp_remaining, p, curr);
 	*old_next = new;
 }
 
@@ -67,7 +84,7 @@ static int cmp_plist(const plist_t *p1, const plist_t *p2)
 #define SWAP_PTRS(a, b) do { void *t = (a); (a) = (b); (b) = t; } while (0)
 plist_t * plist_merge(plist_t *list1, plist_t *list2)
 {
-	plist_t *list = NULL, **pnext = &list, *tmp;
+	plist_t *list = NULL, **pnext = &list;
 	int cmp;
 	if (list2 == NULL)
 		return list1;

@@ -7,10 +7,7 @@
 struct p_element {
 	int Na;
 	int Nd;
-	union {
-		int hp_remaining;
-		int dmg;
-	};
+	int hp_remaining;
 	double p;
 	struct p_element *next;
 };
@@ -28,6 +25,10 @@ static plist_t * new_plist(void)
 	return calloc(1, sizeof(plist_t));
 }
 
+void plist_free(plist_t *p);
+
+void parray_free(parray_t pa);
+
 parray_t new_parray(int len);
 
 /*
@@ -38,7 +39,7 @@ void set_p_element(plist_t *elem, int Na, int Nd, int dmg, double p, plist_t *ne
 /*
  * Increment or set the p value in the parray
  */
-void parray_incr_p(int Na, int Nd, int dmg, double p, parray_t plist);
+void parray_incr_p(int Na, int Nd, int hp_remaining, double p, parray_t plist);
 
 /*
  * Insert element after head

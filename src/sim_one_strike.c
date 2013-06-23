@@ -46,7 +46,7 @@ plist_t * sim(attacker_t A, defender_t D)
 plist_t * sim_sub(attacker_t A, defender_t D, double p_in)
 {
 	int sk, i;
-	plist_t *p1, *p2, *p3, *p_out = NULL;
+	plist_t *p1, *p2, *p_out = NULL;
 	if (A->n == 0 || D->n == 0) {
 		p_out = new_plist();
 		set_p_element(p_out, A->n, D->n, D->hp_remaining, p_in, NULL);
@@ -60,6 +60,7 @@ plist_t * sim_sub(attacker_t A, defender_t D, double p_in)
 				continue;
 			p_out = plist_merge(p_out, for_each_sub_sim(pa->a[i], A, D, p_in));
 		}
+		parray_free(pa);
 		return p_out;
 	}
 	p1 = kill_defenders(A, D);
@@ -67,7 +68,9 @@ plist_t * sim_sub(attacker_t A, defender_t D, double p_in)
 		p2->p *= p_in;
 	if (sk == D->n) //all defenders are sure to be killed
 		return p1;
-	return for_each_sub_sim(p1, A, D, 1);
+	p2 = for_each_sub_sim(p1, A, D, 1);
+	plist_free(p1);
+	return p2;
 }
 
 static plist_t * for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in)
@@ -101,8 +104,13 @@ static int min(int a, int b)
 		return a;
 	return b;
 }
-
-static int sure_kills(attacker_t A, defender_t D)
+static int max(int a, int b)
+{
+	if (a > b)
+		return a;
+	return b;
+}
+static int sure_kills(const attacker_t A, const defender_t D)
 {
 	return min(D->n, A->n/min_attackers(A->dmg_min, D->hp));
 }
@@ -111,11 +119,7 @@ typedef struct { // used in kill_defenders()
 	int n;
 	double p;
 } p_term;
-// sort biggest first
-static int cmp_terms(const void *p1, const void *p2)
-{
-	return ((p_term*)p2)->n - ((p_term*)p1)->n;
-}
+
 
 /*
  * Remove defenders that will die for sure, due to number of attackers
@@ -124,57 +128,55 @@ static int cmp_terms(const void *p1, const void *p2)
 plist_t * kill_defenders(attacker_t A, defender_t D)
 {
 	parray_t kill_prob;
-	int dloss, i,j, p1_i, p2_i, p0_len, p1_len;
+	int dloss, i,j, p1_i, p0_len, p_alloc = 0;
 	
-	p_term *p0, *p1, *p2, *pt;
+	p_term *p0;
+	double *p1, *p2;
 	dloss = sure_kills(A, D);
 	kill_prob = kill_one_defender(A, D);
 	if (!kill_prob)
 		return NULL;
 	p0 = calloc(kill_prob->len, sizeof(p_term));
-	p1 = calloc(kill_prob->len, sizeof(p_term));
 	for (i = 0, p0_len = 0; i < kill_prob->len; i++) {
 		plist_t *pe;
-		if (pe = kill_prob->a[i]) {
-			p0[p0_len].n = p1[p0_len].n = i;
-			p0[p0_len].p = p1[p0_len].p = pe->p;
+		if ((pe = kill_prob->a[i])) {
+			p0[p0_len].n = pe->Na;
+			p0[p0_len].p = pe->p;
 			p0_len++;
+			p_alloc = max(p_alloc, pe->Na*dloss+1);
 		}
 	}
-	p1_len = binomial(dloss+p0_len-1, dloss)+1;
-	p1 = realloc(p1, p1_len*sizeof(p_term));
-	p1[p0_len].n = 0;
-	p2 = calloc(p1_len, sizeof(p_term));
+	parray_free(kill_prob);
+	p1 = calloc(p_alloc, sizeof(double));
+	p2 = calloc(p_alloc, sizeof(double));
+	memset(p1, 0, p_alloc*sizeof(double));
+	for (i = 0; i < p0_len; i++)
+		p1[p0[i].n] = p0[i].p;
+
 	for (i = 1; i < dloss; i++) { // multiply polynomials
-		p2_i = 0;
-		for (p1_i = 0; p1_i < p1_len; p1_i++) {
-			for (j = 0; j < p0_len; j++) {
-				p2[p2_i].n = p0[j].n + p1[p1_i].n;
-				p2[p2_i].p = p0[j].p * p1[p1_i].p;
-				p2_i++;
-			}
+		memset(p2, 0, p_alloc*sizeof(double));
+		for (p1_i = 0; p1_i < p_alloc; p1_i++) {
+			for (j = 0; j < p0_len; j++)
+				if (p1[p1_i] != 0)
+					p2[p1_i+p0[j].n] = p0[j].p * p1[p1_i];
 		}
 		SWAP_PTRS(p1, p2);
-		memset(p2, 0, p1_len);
-	}
-	p1_len = p2_i;
-	qsort(p1, p1_len, sizeof(p_term), cmp_terms); // sort and merge terms with same number of attacker losses
-	p2[0] = p1[0];
-	for (p1_i = 1, p2_i = 0; p1_i < p1_len; p1_i++) {
-		if (p2[p2_i].n == p1[p1_i].n)
-			p2[p2_i].p += p1[p1_i].p;
-		else {
-			p2[++p2_i].n = p1[p1_i].n;
-			p2[p2_i].p = p1[p1_i].p;
-		}
 	}
 	plist_t *p_out = NULL, *new, *prev = NULL;
-	for (p2_i = 0; p2[p2_i].n > 0; p2_i++) {
+	for (p1_i = p_alloc-1; p1_i >= 0; p1_i--) {
+		if (p1[p1_i] == 0)
+			continue;
+		int Nd = D->n-dloss;
 		new = new_plist();
-		set_p_element(new, A->n - p2[p2_i].n, 0, 0, p2[p2_i].p, NULL);
+		set_p_element(new, A->n - p1_i, Nd, Nd ? D->hp : 0, p1[p1_i], NULL);
 		plist_append(prev, new);
 		prev = new;
+		if (!p_out)
+			p_out = new;
 	}
+	free(p0);
+	free(p1);
+	free(p2);
 	return p_out;
 }
 
@@ -209,6 +211,8 @@ parray_t attack_one_defender(attacker_t A, defender_t D)
 		for (p = pa->a[i]; p; p = p->next) {
 			p->Na = A->n - p->Na;
 			p->Nd = D->n - p->Nd;
+			if (p->Nd && p->Nd != D->n)
+				p->hp_remaining = D->hp;
 		}
 	return pa;
 }
@@ -248,7 +252,7 @@ static int attack_one_defender1(const int n_sure_kill, attacker_t A, const int h
 		p = outcome_prob(hit, miss, A, hp);
 		if (dmg < hp) {
 			if (hit + miss == n_sure_kill)
-				parray_incr_p(hit+miss, 0, dmg, p, parr);
+				parray_incr_p(hit+miss, 0, hp - dmg, p, parr);
 			hit++;
 		} else {
 			parray_incr_p(hit+miss, 1, 0, p, parr);
@@ -292,7 +296,7 @@ static ULONG multinomial(int n, int k[], int k_len)
 void print_plist(plist_t *p)
 {
 	for(;p;p = p->next)
-		printf("%i, %i, %i, %.2f\n",
+		printf("%3i, %3i, %3i, %.3e\n",
 			p->Na,
 			p->Nd,
 			p->hp_remaining,
@@ -323,9 +327,10 @@ int main(int argc, char **argv)
 	//pa = kill_one_defender(&A, &D);
 	//pa = attack_one_defender(&A, &D);
 	//print_parray(pa);
-	//p = sim(&A, &D);
-	p = kill_defenders(&A, &D);
+	p = sim(&A, &D);
+	//p = kill_defenders(&A, &D);
 	print_plist(p);
+	plist_free(p);
 	printf("OK\n");
 	return 0;
 }
