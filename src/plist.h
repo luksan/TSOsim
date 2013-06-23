@@ -34,25 +34,12 @@ parray_t new_parray(int len);
 /*
  * Helper to assign all members of a p_element
  */
-void set_p_element(plist_t *elem, int Na, int Nd, int dmg, double p, plist_t *next);
+plist_t * set_p_element(plist_t *elem, int Na, int Nd, int dmg, double p, plist_t *next);
 
 /*
  * Increment or set the p value in the parray
  */
 void parray_incr_p(int Na, int Nd, int hp_remaining, double p, parray_t plist);
-
-/*
- * Insert element after head
- */
-static void plist_append(plist_t *head, plist_t *new)
-{
-	plist_t *t;
-	if (!head)
-		return;
-	t = head->next;
-	head->next = new;
-	new->next = t;
-}
 
 /*
  * Merge two sorted plists

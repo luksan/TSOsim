@@ -162,17 +162,12 @@ plist_t * kill_defenders(attacker_t A, defender_t D)
 		}
 		SWAP_PTRS(p1, p2);
 	}
-	plist_t *p_out = NULL, *new, *prev = NULL;
-	for (p1_i = p_alloc-1; p1_i >= 0; p1_i--) {
+	plist_t *p_out = NULL;
+	for (p1_i = 0; p1_i < p_alloc; p1_i++) {
 		if (p1[p1_i] == 0)
 			continue;
-		int Nd = D->n-dloss;
-		new = new_plist();
-		set_p_element(new, A->n - p1_i, Nd, Nd ? D->hp : 0, p1[p1_i], NULL);
-		plist_append(prev, new);
-		prev = new;
-		if (!p_out)
-			p_out = new;
+		int Nd = D->n - dloss;
+		p_out = set_p_element(new_plist(), A->n - p1_i, Nd, Nd ? D->hp : 0, p1[p1_i], p_out);
 	}
 	free(p0);
 	free(p1);

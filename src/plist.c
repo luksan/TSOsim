@@ -39,13 +39,14 @@ void parray_free(parray_t pa)
 	free(pa);
 }
 
-void set_p_element(plist_t *elem, int Na, int Nd, int hp_remaining, double p, plist_t *next)
+plist_t * set_p_element(plist_t *elem, int Na, int Nd, int hp_remaining, double p, plist_t *next)
 {
 	elem->Na = Na;
 	elem->Nd = Nd;
 	elem->hp_remaining = hp_remaining;
 	elem->p = p;
 	elem->next = next;
+	return elem;
 };
 
 static plist_t * copy_p_element(plist_t *elem) {
