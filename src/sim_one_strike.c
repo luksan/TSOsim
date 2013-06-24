@@ -4,27 +4,12 @@
 #include <limits.h>
 #include <stdio.h>
 
-#include "plist.h"
-
-struct attacker {
-	int n;
-	int dmg_min;
-	int dmg_max;
-	double accuracy;
-};
-typedef struct attacker *attacker_t;
-
-struct defender {
-	int n;
-	int hp;
-	int hp_remaining;
-};
-typedef struct defender *defender_t;
+#include "sim_one_strike.h"
 
 #define SWAP_PTRS(a, b) do { void *t = (a); (a) = (b); (b) = t; } while (0)
 
 /* function declarations */
-//double outcome_prob(int hit, int miss, attacker_t A, int hp);
+
 parray_t kill_one_defender(attacker_t A, defender_t D);
 parray_t attack_one_defender(attacker_t A, defender_t D);
 plist_t * kill_defenders(attacker_t A, defender_t D);
