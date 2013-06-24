@@ -20,10 +20,7 @@ struct parray {
 
 typedef struct parray * parray_t;
 
-static plist_t * new_plist(void)
-{
-	return calloc(1, sizeof(plist_t));
-}
+plist_t * new_plist(void);
 
 void plist_free(plist_t *p);
 

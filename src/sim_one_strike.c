@@ -3,6 +3,7 @@
 #include <string.h>
 #include <limits.h>
 #include <stdio.h>
+#include <sys/stat.h>
 
 #include "sim_one_strike.h"
 
@@ -10,13 +11,13 @@
 
 /* function declarations */
 
-parray_t kill_one_defender(attacker_t A, defender_t D);
-parray_t attack_one_defender(attacker_t A, defender_t D);
-plist_t * kill_defenders(attacker_t A, defender_t D);
+static parray_t kill_one_defender(attacker_t A, defender_t D);
+static parray_t attack_one_defender(attacker_t A, defender_t D);
+static plist_t * kill_defenders(attacker_t A, defender_t D);
 static plist_t * for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in);
 static int sure_kills(attacker_t A, defender_t D);
 static void attack_one_defender1(const int n_sure_kill, attacker_t A, const int hp, parray_t parr);
-plist_t * sim_sub(attacker_t A, defender_t D, double p_in);
+static plist_t * sim_sub(attacker_t A, defender_t D, double p_in);
 
 typedef unsigned long ULONG;
 static ULONG binomial(int n, int k);
@@ -28,7 +29,7 @@ plist_t * sim(attacker_t A, defender_t D)
 	return sim_sub(A, D, 1);
 }
 
-plist_t * sim_sub(attacker_t A, defender_t D, double p_in)
+static plist_t * sim_sub(attacker_t A, defender_t D, double p_in)
 {
 	int sk, i;
 	plist_t *p1 = NULL, *p2;
@@ -100,33 +101,60 @@ typedef struct { // used in kill_defenders()
 } p_term;
 
 
+static int kill_defenders_get_p0(attacker_t A, defender_t D, p_term **p0, int *p0_len)
+{
+	parray_t kill_prob;
+	int i;
+
+	static int dmg_max, dmg_min, hp;
+	static double accuracy;
+	static int cache_len;
+	static p_term *cache;
+	if (A->dmg_max == dmg_max && A->dmg_min == dmg_min &&
+		A->accuracy == accuracy && D->hp == hp && cache) {
+		*p0 = cache;
+		*p0_len = cache_len;
+		return 0;
+	}
+	kill_prob = kill_one_defender(A, D);
+	if (!kill_prob)
+		return -1;
+	*p0 = malloc(kill_prob->len * sizeof(p_term));
+	for (i = 0, *p0_len = 0; i < kill_prob->len; i++) {
+		plist_t *pe;
+		if ((pe = kill_prob->a[i])) {
+			(*p0)[*p0_len].n = pe->Na;
+			(*p0)[*p0_len].p = pe->p;
+			(*p0_len)++;
+		}
+	}
+	parray_free(kill_prob);
+	free(cache);
+	cache = *p0;
+	cache_len = *p0_len;
+	dmg_max = A->dmg_max;
+	dmg_min = A->dmg_min;
+	hp = D->hp;
+	accuracy = A->accuracy;
+	return 0;
+}
+
 /*
  * Remove defenders that will die for sure, due to number of attackers
  * Return list of {attackers remaining, prob}
  */
 plist_t * kill_defenders(attacker_t A, defender_t D)
 {
-	parray_t kill_prob;
 	int dloss, i,j, p1_i, p0_len, p_alloc = 0;
-	
 	p_term *p0;
 	double *p1, *p2;
 	dloss = sure_kills(A, D);
-	kill_prob = kill_one_defender(A, D);
-	if (!kill_prob)
+	if (!dloss)
 		return NULL;
-	p0 = calloc(kill_prob->len, sizeof(p_term));
-	for (i = 0, p0_len = 0; i < kill_prob->len; i++) {
-		plist_t *pe;
-		if ((pe = kill_prob->a[i])) {
-			p0[p0_len].n = pe->Na;
-			p0[p0_len].p = pe->p;
-			p0_len++;
-			p_alloc = max(p_alloc, pe->Na*dloss+1);
-		}
-	}
-	parray_free(kill_prob);
 
+	kill_defenders_get_p0(A, D, &p0, &p0_len);
+
+	p_alloc = p0[p0_len-1].n*dloss + 1;
 	p1 = calloc(p_alloc, sizeof(double));
 	p2 = malloc(p_alloc*sizeof(double));
 	for (i = 0; i < p0_len; i++)
@@ -147,14 +175,14 @@ plist_t * kill_defenders(attacker_t A, defender_t D)
 		int Nd = D->n - dloss;
 		p_out = set_p_element(new_plist(), A->n - p1_i, Nd, Nd ? D->hp : 0, p1[p1_i], p_out);
 	}
-	free(p0);
+	//free(p0); it's cached
 	free(p1);
 	free(p2);
 	return p_out;
 }
 
 /* How many attackers are lost after killing one defender */
-parray_t kill_one_defender(attacker_t A, defender_t D)
+static parray_t kill_one_defender(attacker_t A, defender_t D)
 {
 	int Na_min = min_attackers(A->dmg_min, D->hp);
 	int i;
@@ -173,7 +201,7 @@ parray_t kill_one_defender(attacker_t A, defender_t D)
 	return parr;
 }
 	
-parray_t attack_one_defender(attacker_t A, defender_t D)
+static parray_t attack_one_defender(attacker_t A, defender_t D)
 {
 	int Na_min, i;
 	plist_t *p;
@@ -196,9 +224,10 @@ static inline int is_kill(int hit, int miss, attacker_t A, int hp)
 }
 
 /* the natural logarithm of the binomial coefficient N over K */
-static double ln_binomial(double N, double K)
+static double ln_binomial(int N, int K)
 {
-	return lgamma(N+1)-lgamma(K+1)-lgamma(N-K+1);
+	//return lgamma(N+1)-lgamma(K+1)-lgamma(N-K+1);
+	return log(binomial(N, K));
 }
 
 static double outcome_prob(int hit, int miss, attacker_t A, int hp)
@@ -207,10 +236,16 @@ static double outcome_prob(int hit, int miss, attacker_t A, int hp)
 	double B, H, M;
 	if (miss && is_kill(hit, miss-1, A, hp))
 		perm_last = 1;
+	/*
 	B = ln_binomial(hit+miss-perm_last, hit > 0 ? hit-perm_last : 0);
-	H = hit*log(A->accuracy);
-	M = miss*log(1 - A->accuracy);
+	H = hit*A->ln_acc;//log(A->accuracy);
+	M = miss*A->ln_1m_acc;//(1 - A->accuracy);
 	return exp(B+H+M);
+	*/
+	B = binomial(hit+miss-perm_last, hit > 0 ? hit-perm_last : 0);
+	H = hit * A->accuracy;
+	M = miss * (1 - A->accuracy);
+	return B*H*M;
 }
 
 static void attack_one_defender1(const int n_sure_kill, attacker_t A, const int hp, parray_t parr)
@@ -219,8 +254,8 @@ static void attack_one_defender1(const int n_sure_kill, attacker_t A, const int 
 	double p;
 	miss = n_sure_kill;
 	while (hit <= n_sure_kill) {
-		while (hit + miss > n_sure_kill)
-			miss--;
+		if (hit + miss > n_sure_kill)
+			miss = n_sure_kill - hit;
 		dmg = hit*A->dmg_max + miss*A->dmg_min;
 		p = outcome_prob(hit, miss, A, hp);
 		if (dmg < hp) {
@@ -303,10 +338,12 @@ int main(int argc, char **argv)
 	//pa = kill_one_defender(&A, &D);
 	//pa = attack_one_defender(&A, &D);
 	//print_parray(pa);
-	p = sim(&A, &D);
+	for (int i = 0; i < 1000; i++) {
+		p = sim(&A, &D);
 	//p = kill_defenders(&A, &D);
-	print_plist(p);
-	plist_free(p);
+	//print_plist(p);
+		plist_free(p);
+	}
 	printf("OK\n");
 	return 0;
 }

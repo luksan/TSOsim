@@ -5,13 +5,33 @@
 
 /* list and array handling */
 
+static plist_t *free_nodes;
+
 static plist_t * free_p_element(plist_t *p)
 {
 	if (!p)
 		return NULL;
 	plist_t *n = p->next;
-	free(p);
+	//free(p);
+	p->next = free_nodes;
+	free_nodes = p;
 	return n;
+}
+
+plist_t * new_plist(void)
+{
+	plist_t *new;
+	int i;
+	if (free_nodes) {
+		new = free_nodes;
+		free_nodes = free_nodes -> next;
+		//memset(new, 0, sizeof(plist_t));
+		return new;
+	}
+	new = free_nodes = calloc(1000, sizeof(plist_t));
+	for (i = 1; i < 1000; i++)
+		new = (new->next = &free_nodes[i]);
+	return new_plist();
 }
 
 void plist_free(plist_t *p)
