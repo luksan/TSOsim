@@ -7,7 +7,7 @@
 
 static plist_t *free_nodes;
 
-static plist_t * free_p_element(plist_t *p)
+plist_t * free_p_element(plist_t *p)
 {
 	if (!p)
 		return NULL;
@@ -28,8 +28,8 @@ plist_t * new_plist(void)
 		//memset(new, 0, sizeof(plist_t));
 		return new;
 	}
-	new = free_nodes = calloc(1000, sizeof(plist_t));
-	for (i = 1; i < 1000; i++)
+	new = free_nodes = calloc(256, sizeof(plist_t));
+	for (i = 1; i < 256; i++)
 		new = (new->next = &free_nodes[i]);
 	return new_plist();
 }
@@ -76,11 +76,33 @@ plist_t * set_p_element(plist_t *elem, int Na, int Nd, int hp_remaining, double 
 	return elem;
 };
 
-static plist_t * copy_p_element(plist_t *elem) {
-	plist_t *new = new_plist();
-	memcpy(new, elem, sizeof(plist_t));
-	return new;
+plist_t * parray_to_plist(parray_t pa)
+{
+	int i;
+	plist_t *p, *out;
+	for (i = 0; i < pa->len && !pa->a[i]; i++);
+	p = out = pa->a[i];
+	for (i++; i < pa->len; i++) {
+		while (p->next)
+			p = p->next;
+		p->next = pa->a[i];
+	}
+	free(pa);
+	return out;
+}
+
+static inline plist_t * copy_p_element(plist_t *elem) {
+	return memcpy(new_plist(), elem, sizeof(plist_t));
 };
+
+plist_t * plist_copy(plist_t *p_in)
+{
+	plist_t *out, *p;
+	out = p = copy_p_element(p_in);
+	while ((p_in = p_in->next))
+		p = (p->next = copy_p_element(p_in));
+	return out;
+}
 
 void parray_incr_p(int Na, int Nd, int hp_remaining, double p, parray_t plist)
 {

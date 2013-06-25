@@ -22,6 +22,7 @@ typedef struct parray * parray_t;
 
 plist_t * new_plist(void);
 
+plist_t * free_p_element(plist_t *p);
 void plist_free(plist_t *p);
 
 void parray_free(parray_t pa);
@@ -32,6 +33,9 @@ parray_t new_parray(int len);
  * Helper to assign all members of a p_element
  */
 plist_t * set_p_element(plist_t *elem, int Na, int Nd, int dmg, double p, plist_t *next);
+
+plist_t * parray_to_plist(parray_t pa);
+plist_t * plist_copy(plist_t *p_in);
 
 /*
  * Increment or set the p value in the parray

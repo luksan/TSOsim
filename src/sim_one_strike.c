@@ -12,66 +12,116 @@
 /* function declarations */
 
 static parray_t kill_one_defender(attacker_t A, defender_t D);
-static parray_t attack_one_defender(attacker_t A, defender_t D);
+static plist_t * attack_one_defender( attacker_t A, defender_t D );
 static plist_t * kill_defenders(attacker_t A, defender_t D);
-static plist_t * for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in);
+static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in);
 static int sure_kills(attacker_t A, defender_t D);
 static void attack_one_defender1(const int n_sure_kill, attacker_t A, const int hp, parray_t parr);
-static plist_t * sim_sub(attacker_t A, defender_t D, double p_in);
+static void sim_sub(attacker_t A, defender_t D, double p_in);
 
 typedef unsigned long ULONG;
 static ULONG binomial(int n, int k);
 
 /* probability calculations */
 
+struct dp {
+	double p;
+	int hp;
+};
+
+static struct {
+	double A[251];
+	struct dp *D[251];
+} ss_res;
+
 plist_t * sim(attacker_t A, defender_t D)
 {
-	return sim_sub(A, D, 1);
+	int i, j;
+	plist_t *ret, *p, **pnext;
+	sim_sub(A, D, 1);
+	pnext = &ret;
+	for (i = 250; i >= 0; i--) {
+		if (ss_res.A[i] == 0)
+			continue;
+		*pnext = p = new_plist();
+		pnext = &p->next;
+		p->Na = i;
+		p->Nd = 0;
+		p->p = ss_res.A[i];
+		p->hp_remaining = 0;
+	}
+	for (i = 0; i < 251; i++) {
+		if (!ss_res.D[i])
+			continue;
+		for (j = 0; ss_res.D[i][j].hp != 0; j++) {
+			*pnext = p = new_plist();
+			pnext = &p->next;
+			p->Na = 0;
+			p->Nd = i;
+			p->p = ss_res.D[i][j].p;
+			p->hp_remaining = ss_res.D[i][j].hp;
+		}
+		free(ss_res.D[i]);
+	}
+	*pnext = NULL;
+	return ret;
 }
 
-static plist_t * sim_sub(attacker_t A, defender_t D, double p_in)
+static void sim_sub(attacker_t A, defender_t D, double p_in)
 {
-	int sk, i;
+	int sk;
 	plist_t *p1 = NULL, *p2;
-	if (A->n == 0 || D->n == 0)
-		return set_p_element(new_plist(), A->n, D->n, D->hp_remaining, p_in, NULL);
+	if (D->n == 0) {
+		ss_res.A[A->n] += p_in;
+		return;
+	}
+	if (A->n == 0) {
+		struct dp *d;
+		int i = 0;
+		d = ss_res.D[D->n];
+		if (d)
+			for (; d[i].hp != 0 && d[i].hp != D->hp_remaining; i++);
+		if (!d || d[i].hp != D->hp_remaining) {
+			d = ss_res.D[D->n] = realloc(d, (i+2) * sizeof(struct dp));
+			d[i].hp = D->hp_remaining;
+			d[i].p = p_in;
+			d[i+1].hp = 0;
+			d[i+1].p = 0;
+		} else
+			d[i].p += p_in;
+		return;
+	}
 
 	sk = sure_kills(A, D);
 	if (sk == 0) { // no sure kills remaining
-		parray_t pa = attack_one_defender(A, D);
-		for (i = 0; i < pa->len; i++)
-			if (pa->a[i])
-				p1 = plist_merge(p1, for_each_sub_sim(pa->a[i], A, D, p_in));
-		parray_free(pa);
-		return p1;
+		p1 = attack_one_defender(A, D);
+		for_each_sub_sim(p1, A, D, p_in);
+		return;
 	}
 	p1 = kill_defenders(A, D);
-	for (p2 = p1; p2; p2 = p2->next)
-		p2->p *= p_in;
-	if (sk == D->n) //all defenders are sure to be killed
-		return p1;
-	p2 = for_each_sub_sim(p1, A, D, 1);
-	plist_free(p1);
-	return p2;
+	if (sk == D->n) { //all defenders are sure to be killed
+		for (p2 = p1; p2; p2 = p2->next)
+			ss_res.A[p2->Na] += p2->p*p_in;
+		plist_free(p1);
+	} else
+		for_each_sub_sim(p1, A, D, p_in);
 }
 
-static plist_t * for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in)
+static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in)
 {
 	int Na_in, Nd_in, hp_in;
-	plist_t *p_out = NULL;
 	Na_in = A->n;
 	Nd_in = D->n;
 	hp_in = D->hp_remaining;
-	for (; p1; p1 = p1->next) {
+	for (; p1; p1 = free_p_element(p1)) {
 		A->n = p1->Na;
 		D->n = p1->Nd;
 		D->hp_remaining = p1->hp_remaining;
-		p_out = plist_merge(sim_sub(A,D, p_in*p1->p), p_out);
+		sim_sub(A, D, p_in*p1->p);
 	}
 	A->n = Na_in;
 	D->n = Nd_in;
 	D->hp_remaining = hp_in;
-	return p_out;
 }
 
 static inline int min_attackers(int dmg_min, int hp)
@@ -151,7 +201,8 @@ plist_t * kill_defenders(attacker_t A, defender_t D)
 	if (!dloss)
 		return NULL;
 
-	kill_defenders_get_p0(A, D, &p0, &p0_len);
+	if (kill_defenders_get_p0(A, D, &p0, &p0_len) < 0)
+		return NULL;
 
 	p_alloc = p0[p0_len-1].n*dloss + 1;
 	p1 = calloc(p_alloc, sizeof(double));
@@ -202,22 +253,58 @@ static parray_t kill_one_defender(attacker_t A, defender_t D)
 }
 
 static int calls;
-static parray_t attack_one_defender(attacker_t A, defender_t D)
-{
-	int Na_min, i;
+
+typedef struct x_ {
+	int hp;
+	int na_min;
+	attacker_t A;
 	plist_t *p;
-	calls++;
+	struct x_ *next;
+} aod_cache_t;
+
+static aod_cache_t *aod_cache;
+
+static plist_t * aod_cache_get(int na_min, attacker_t A, int hp)
+{
+	aod_cache_t *a;
+	for (a = aod_cache; a; a = a->next)
+		if (a->A == A && a->hp == hp && a->na_min == na_min)
+			return plist_copy(a->p);
+	return NULL;
+}
+
+static void aod_cache_put(int na_min, attacker_t A, int hp, plist_t *p)
+{
+	aod_cache_t *n = malloc(sizeof(aod_cache_t));
+	n->hp = hp;
+	n->na_min = na_min;
+	n->A = A;
+	n->p = plist_copy(p);
+	n->next = aod_cache;
+	aod_cache = n;
+}
+
+static plist_t * attack_one_defender(attacker_t A, defender_t D)
+{
+	int Na_min;
+	plist_t *p, *out;
+
 	Na_min = min(min_attackers(A->dmg_min, D->hp), A->n);
-	parray_t pa = new_parray(Na_min);
-	attack_one_defender1(Na_min, A, D->hp_remaining, pa);
-	for (i = 0; i < pa->len; i++)
-		for (p = pa->a[i]; p; p = p->next) {
-			p->Na = A->n - p->Na;
-			p->Nd = D->n - p->Nd;
-			if (p->Nd && p->Nd != D->n)
-				p->hp_remaining = D->hp;
-		}
-	return pa;
+	out = aod_cache_get(Na_min, A ,D->hp);
+	if (!out) {
+		parray_t pa = new_parray(Na_min);
+		attack_one_defender1(Na_min, A, D->hp_remaining, pa);
+		out = parray_to_plist(pa);
+		aod_cache_put(Na_min, A, D->hp, out);
+	}
+	for (p = out; p; p = p->next) {
+		p->Na = A->n - p->Na;
+		p->Nd = D->n - p->Nd;
+		if (p->Nd && p->Nd != D->n)
+			p->hp_remaining = D->hp;
+	}
+
+	return out;
 }
 
 static inline int is_kill(int hit, int miss, attacker_t A, int hp)
@@ -351,8 +438,8 @@ int main(int argc, char **argv)
 	//pa = attack_one_defender(&A, &D);
 	//print_parray(pa);
 	for (int i = 0; i < 1; i++) {
-		//p = sim(&A, &D);
-		p = kill_defenders(&A, &D);
+		p = sim(&A, &D);
+		//p = kill_defenders(&A, &D);
 		print_plist(p);
 		plist_free(p);
 	}
