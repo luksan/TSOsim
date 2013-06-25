@@ -74,11 +74,9 @@ static plist_t * for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, doubl
 	return p_out;
 }
 
-static int min_attackers(int dmg_min, int hp)
+static inline int min_attackers(int dmg_min, int hp)
 {
-	if (dmg_min == 0)
-		return 500000;
-	return ceil(hp/(float)dmg_min);
+	return dmg_min ? (hp + dmg_min - 1) / dmg_min : 50000; // ceil(a/b)
 }
 
 static inline int min(int a, int b)
@@ -90,7 +88,7 @@ static inline int max(int a, int b)
 	return a > b ? a : b;
 }
 
-static int sure_kills(const attacker_t A, const defender_t D)
+static inline int sure_kills(const attacker_t A, const defender_t D)
 {
 	return min(D->n, A->n/min_attackers(A->dmg_min, D->hp));
 }
@@ -116,6 +114,7 @@ static int kill_defenders_get_p0(attacker_t A, defender_t D, p_term **p0, int *p
 		*p0_len = cache_len;
 		return 0;
 	}
+	free(cache);
 	kill_prob = kill_one_defender(A, D);
 	if (!kill_prob)
 		return -1;
@@ -145,7 +144,7 @@ static int kill_defenders_get_p0(attacker_t A, defender_t D, p_term **p0, int *p
  */
 plist_t * kill_defenders(attacker_t A, defender_t D)
 {
-	int dloss, i,j, p1_i, p0_len, p_alloc = 0;
+	int dloss, i,j, p1_i, p2_start, p0_len, p_alloc;
 	p_term *p0;
 	double *p1, *p2;
 	dloss = sure_kills(A, D);
@@ -160,12 +159,13 @@ plist_t * kill_defenders(attacker_t A, defender_t D)
 	for (i = 0; i < p0_len; i++)
 		p1[p0[i].n] = p0[i].p;
 
+	p2_start = p0[0].n;
 	for (i = 1; i < dloss; i++) { // multiply polynomials
 		memset(p2, 0, p_alloc*sizeof(double));
-		for (p1_i = 0; p1_i < p_alloc; p1_i++)
+		for (p1_i = p2_start; p1_i < p_alloc && p1[p1_i]; p1_i++)
 			for (j = 0; j < p0_len; j++)
-				if (p1[p1_i] != 0)
-					p2[p1_i+p0[j].n] += p0[j].p * p1[p1_i];
+				p2[p1_i+p0[j].n] += p0[j].p * p1[p1_i];
+		p2_start += p0[0].n;
 		SWAP_PTRS(p1, p2);
 	}
 	plist_t *p_out = NULL;
@@ -200,11 +200,13 @@ static parray_t kill_one_defender(attacker_t A, defender_t D)
 	}
 	return parr;
 }
-	
+
+static int calls;
 static parray_t attack_one_defender(attacker_t A, defender_t D)
 {
 	int Na_min, i;
 	plist_t *p;
+	calls++;
 	Na_min = min(min_attackers(A->dmg_min, D->hp), A->n);
 	parray_t pa = new_parray(Na_min);
 	attack_one_defender1(Na_min, A, D->hp_remaining, pa);
@@ -243,8 +245,8 @@ static double outcome_prob(int hit, int miss, attacker_t A, int hp)
 	return exp(B+H+M);
 	*/
 	B = binomial(hit+miss-perm_last, hit > 0 ? hit-perm_last : 0);
-	H = hit * A->accuracy;
-	M = miss * (1 - A->accuracy);
+	H = pow(A->accuracy, hit);
+	M = pow(1 - A->accuracy, miss);
 	return B*H*M;
 }
 
@@ -252,7 +254,10 @@ static void attack_one_defender1(const int n_sure_kill, attacker_t A, const int 
 {
 	int hit = 0, dmg, miss;
 	double p;
+
 	miss = n_sure_kill;
+	if (hp != 40)
+		printf("hp: %i\n", hp);
 	while (hit <= n_sure_kill) {
 		if (hit + miss > n_sure_kill)
 			miss = n_sure_kill - hit;
@@ -275,12 +280,16 @@ static ULONG binomial(int n, int k)
 {
 	ULONG r = 1, d = n - k;
 	
+	if (n==k || k == 0) return 1;
+	if (n==0) return 0;
+	if (k==1) return n;
+
 	/* choose the smaller of k and n - k */
 	if (d > k) { k = d; d = n - k; }
 	
 	while (n > k) {
 		if (r >= UINT_MAX / n) return 0; /* overflown */
-			r *= n--;
+		r *= n--;
 		
 		/* divide (n - k)! as soon as we can to delay overflows */
 		while (d > 1 && !(r % d)) r /= d--;
@@ -303,15 +312,18 @@ static ULONG multinomial(int n, int k[], int k_len)
 void print_plist(plist_t *p)
 {
 	double p_tot = 0;
+	int len = 0;
 	for(;p;p = p->next) {
 		p_tot += p->p;
+		len++;
+		if (len < 30)
 		printf("%3i, %3i, %3i, %.3e\n",
 			p->Na,
 			p->Nd,
 			p->hp_remaining,
 			p->p);
 	}
-	printf("Total prob: %f\n", p_tot);
+	printf("List length: %i, total prob: %f\n", len, p_tot);
 }
 void print_parray(parray_t pa)
 {
@@ -338,13 +350,13 @@ int main(int argc, char **argv)
 	//pa = kill_one_defender(&A, &D);
 	//pa = attack_one_defender(&A, &D);
 	//print_parray(pa);
-	for (int i = 0; i < 1000; i++) {
-		p = sim(&A, &D);
-	//p = kill_defenders(&A, &D);
-	//print_plist(p);
+	for (int i = 0; i < 1; i++) {
+		//p = sim(&A, &D);
+		p = kill_defenders(&A, &D);
+		print_plist(p);
 		plist_free(p);
 	}
-	printf("OK\n");
+	printf("OK, %i calls\n", calls);
 	return 0;
 }
 

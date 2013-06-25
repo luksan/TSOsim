@@ -36,7 +36,14 @@ plist_t * new_plist(void)
 
 void plist_free(plist_t *p)
 {
-	while ((p = free_p_element(p)));
+	//while ((p = free_p_element(p)));
+	if (!p) return;
+	plist_t *t = free_nodes;
+	free_nodes = p;
+	if (!t) return;
+	while (p->next) 
+		p = p->next;
+	p->next = t;
 }
 
 parray_t new_parray(int len)
