@@ -10,11 +10,19 @@
 #define SWAP_PTRS(a, b) do { void *t = (a); (a) = (b); (b) = t; } while (0)
 
 typedef struct ss_res_ {
-	double *A;
-	double *D;
+	double * restrict A;
+	double * restrict D;
 	int hp_delta;
 	int D_hp_step;
 } ss_res_t;
+
+typedef struct {
+	int a_step;
+	int d_step;
+	int hp_delta;
+	int len;
+	ss_res_t ** restrict r;
+} sa_cache_t;
 
 /* function declarations */
 
@@ -25,6 +33,7 @@ static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_i
 static int sure_kills(attacker_t A, defender_t D);
 static void attack_one_defender1(const int n_sure_kill, attacker_t A, const int hp, parray_t parr);
 static void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
+static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c);
 static inline int min(int a, int b);
 
 typedef unsigned long ULONG;
@@ -38,12 +47,23 @@ static int min_hp_change(attacker_t A)
 	return min(A->dmg_min, A->dmg_max - A->dmg_min);
 }
 
-typedef struct {
-	int a_step;
-	int d_step;
-	int hp_delta;
-	ss_res_t **r;
-} sa_cache_t;
+static ss_res_t * new_ss_res(attacker_t A, defender_t D)
+{
+	ss_res_t * ss_res = malloc(sizeof(ss_res_t));
+	ss_res->hp_delta = min_hp_change(A);
+	ss_res->D_hp_step = D->hp/ss_res->hp_delta + 1;
+	ss_res->A = calloc(A->n+1, sizeof(double));
+	ss_res->D = calloc((D->n+1) * ss_res->D_hp_step, sizeof(double));
+	return ss_res;
+}
+
+static void ss_res_free(ss_res_t *s)
+{
+	if (!s) return;
+	free(s->A);
+	free(s->D);
+	free(s);
+}
 
 static sa_cache_t * sa_c_new(attacker_t A, defender_t D)
 {
@@ -52,37 +72,47 @@ static sa_cache_t * sa_c_new(attacker_t A, defender_t D)
 	c->hp_delta = min_hp_change(A);
 	c->d_step = D->hp/c->hp_delta + 1;
 	c->a_step = c->d_step * (D->n + 1);
-	c->r = calloc(c->a_step * (A->n + 1), sizeof(ss_res_t*));
+	c->len = c->a_step * (A->n + 1);
+	c->r = calloc(c->len, sizeof(ss_res_t*));
 	return c;
 }
 
+static void sa_c_free(sa_cache_t *c)
+{
+	int i;
+	for (i = 0; i < c->len; i++)
+		ss_res_free(c->r[i]);
+	free(c->r);
+	free(c);
+}
+
+int hit, miss;
 static ss_res_t * sa_c_get(attacker_t A, defender_t D, sa_cache_t *c)
 {
-	return c->r[A->n * c->a_step + D->n * c->d_step + D->hp_remaining/c->hp_delta];
+	ss_res_t * r = c->r[A->n * c->a_step + D->n * c->d_step + D->hp_remaining/c->hp_delta];
+	r ? hit++ : miss++;
+	return r;
 }
 
 static void sa_c_put(attacker_t A, defender_t D, ss_res_t *r, sa_cache_t *c)
 {
 	c->r[A->n * c->a_step + D->n * c->d_step + D->hp_remaining/c->hp_delta] = r;
+	//printf("PUT: Na %i, Nd %i, hp %i\n", A->n, D->n, D->hp_remaining);
 }
-
-static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c);
 
 plist_t * sim(attacker_t A, defender_t D)
 {
 	int i, j;
 	plist_t *ret, *p, **pnext;
+	sa_cache_t *c;
+	
+	ss_res_t *ss_res;
 	/*
-	struct ss_res_ ss_res;
-
-	ss_res.hp_delta = min_hp_change(A);
-	ss_res.D_hp_step = D->hp/ss_res.hp_delta + 1;
-	ss_res.A = calloc(A->n+1, sizeof(double));
-	ss_res.D = calloc((D->n+1) * ss_res.D_hp_step, sizeof(double));
-
-	sim_sub(A, D, 1, &ss_res);
-	*/
-	ss_res_t *ss_res = sim_attacks(A, D, sa_c_new(A, D));
+	ss_res = new_ss_res(A, D);
+	sim_sub(A, D, 1, ss_res);
+*/
+	c = sa_c_new(A, D);
+	ss_res = sim_attacks(A, D, c);
 
 	pnext = &ret;
 	for (i = A->n; i >= 0; i--) {
@@ -109,69 +139,78 @@ plist_t * sim(attacker_t A, defender_t D)
 		}
 	}
 	*pnext = NULL;
-	//free(ss_res.A);
-	//free(ss_res.D);
+	//ss_res_free(ss_res);
+	sa_c_free(c);
 	return ret;
-}
-
-static ss_res_t * new_ss_res(attacker_t A, defender_t D)
-{
-	ss_res_t * ss_res = malloc(sizeof(ss_res_t));
-	ss_res->hp_delta = min_hp_change(A);
-	ss_res->D_hp_step = D->hp/ss_res->hp_delta + 1;
-	ss_res->A = calloc(A->n+1, sizeof(double));
-	ss_res->D = calloc((D->n+1) * ss_res->D_hp_step, sizeof(double));
-	return ss_res;
 }
 
 static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c)
 {
 	ss_res_t *r_out, *r1, *r2;
-	int Dn_in, hp_in, i;
+	int Dn_in, hp_in, i, n;
+	double p;
+	//printf("Na: %i, Nd: %i, hp: %i\n", A->n, D->n, D->hp_remaining);
 
 	if ((r_out = sa_c_get(A, D, c)))
 		return r_out;
 
 	r_out = new_ss_res(A, D);
-	if (A->n == 0) {
-		r_out->D[D->n * r_out->D_hp_step + D->hp_remaining/r_out->hp_delta] = 1;
+	if (D->n == 0) {
+		r_out->A[A->n] = 1;
 		sa_c_put(A, D, r_out, c);
 		return r_out;
 	}
-	if (D->n == 0) {
-		r_out->A[A->n] = 1;
+	if (A->n == 0) {
+		r_out->D[D->n * r_out->D_hp_step + D->hp_remaining/r_out->hp_delta] = 1;
 		sa_c_put(A, D, r_out, c);
 		return r_out;
 	}
 	hp_in = D->hp_remaining;
 	Dn_in = D->n;
 	A->n--;
-	if (hp_in > A->dmg_max)
-		D->hp_remaining = hp_in - A->dmg_max;
-	else {
+
+	if (hp_in < A->dmg_min) {
 		D->n = Dn_in - 1;
 		D->hp_remaining = D->n ? D->hp : 0;
+		r1 = sim_attacks(A, D, c);
+		memcpy(r_out->A, r1->A, (A->n+1) * sizeof(double));
+		memcpy(r_out->D, r1->D, (D->n+1) * r1->D_hp_step * sizeof(double));
+		goto sa_out;
 	}
+	D->n = Dn_in;
+	D->hp_remaining = hp_in - A->dmg_min;
+
 	r1 = sim_attacks(A, D, c);
-	if (hp_in > A->dmg_min)
-		D->hp_remaining = hp_in - A->dmg_min;
-	else {
+	p = 1 - A->accuracy;
+	n = A->n+1;
+	memcpy(r_out->A, r1->A, n * sizeof(double));
+	for (i = 0, n = A->n+1; i < n; i++)
+		if (r_out->A[i])
+			r_out->A[i] *= p;
+	n = (D->n+1)*r1->D_hp_step;
+	memcpy(r_out->D, r1->D, n * sizeof(double));
+	for (i = 0; i < n; i++)
+		if (r_out->D[i])
+			r_out->D[i] *= p;
+	
+	if (hp_in > A->dmg_max) {
+		D->n = Dn_in;
+		D->hp_remaining = hp_in - A->dmg_max;
+	} else {
 		D->n = Dn_in - 1;
 		D->hp_remaining = D->n ? D->hp : 0;
 	}
 	r2 = sim_attacks(A, D, c);
 
-	memcpy(r_out->A, r1->A, (A->n+1) * sizeof(double));
-	for (i = 0; i < (A->n+1); i++)
-		r_out->A[i] *= A->accuracy;
-	memcpy(r_out->D, r1->D, (D->n+1) * r1->D_hp_step * sizeof(double));
-	for (i = 0; i < (D->n+1)*r1->D_hp_step; i++)
-		r_out->D[i] *= A->accuracy;
-	for (i = 0; i < (A->n+1); i++)
-		r_out->A[i] += r2->A[i] * (1-A->accuracy);
-	for (i = 0; i < (D->n+1)*r2->D_hp_step; i++)
-		r_out->D[i] += r2->D[i] * (1-A->accuracy);
+	p = A->accuracy;
+	for (i = 0, n = A->n+1; i < n; i++)
+		if (r2->A[i])
+			r_out->A[i] += r2->A[i] * p;
+	for (i = 0, n = (D->n+1)*r2->D_hp_step; i < n; i++)
+		if (r2->D[i])
+			r_out->D[i] += r2->D[i] * p;
 
+sa_out:
 	A->n++;
 	D->n = Dn_in;
 	D->hp_remaining = hp_in;
@@ -505,7 +544,7 @@ void print_plist(plist_t *p)
 	for(;p;p = p->next) {
 		p_tot += p->p;
 		len++;
-		if (len < 30)
+		if (len < 300)
 		printf("%3i, %3i, %3i, %.3e\n",
 			p->Na,
 			p->Nd,
@@ -539,13 +578,13 @@ int main(int argc, char **argv)
 	//pa = kill_one_defender(&A, &D);
 	//pa = attack_one_defender(&A, &D);
 	//print_parray(pa);
-	for (int i = 0; i < 1; i++) {
+	for (int i = 0; i < 2; i++) {
 		p = sim(&A, &D);
 		//p = kill_defenders(&A, &D);
-		print_plist(p);
+		//print_plist(p);
 		plist_free(p);
 	}
-	printf("OK, %i calls\n", calls);
+	printf("OK, hit %i, miss %i, hit%% %.2f\n", hit, miss, 100*(float)hit/(hit+miss));
 	return 0;
 }
 
