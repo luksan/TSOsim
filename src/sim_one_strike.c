@@ -9,12 +9,12 @@
 
 #define SWAP_PTRS(a, b) do { void *t = (a); (a) = (b); (b) = t; } while (0)
 
-struct ss_res_ {
+typedef struct ss_res_ {
 	double *A;
 	double *D;
 	int hp_delta;
 	int D_hp_step;
-};
+} ss_res_t;
 
 /* function declarations */
 
@@ -38,10 +38,41 @@ static int min_hp_change(attacker_t A)
 	return min(A->dmg_min, A->dmg_max - A->dmg_min);
 }
 
+typedef struct {
+	int a_step;
+	int d_step;
+	int hp_delta;
+	ss_res_t **r;
+} sa_cache_t;
+
+static sa_cache_t * sa_c_new(attacker_t A, defender_t D)
+{
+	sa_cache_t *c;
+	c = malloc(sizeof(sa_cache_t));
+	c->hp_delta = min_hp_change(A);
+	c->d_step = D->hp/c->hp_delta + 1;
+	c->a_step = c->d_step * (D->n + 1);
+	c->r = calloc(c->a_step * (A->n + 1), sizeof(ss_res_t*));
+	return c;
+}
+
+static ss_res_t * sa_c_get(attacker_t A, defender_t D, sa_cache_t *c)
+{
+	return c->r[A->n * c->a_step + D->n * c->d_step + D->hp_remaining/c->hp_delta];
+}
+
+static void sa_c_put(attacker_t A, defender_t D, ss_res_t *r, sa_cache_t *c)
+{
+	c->r[A->n * c->a_step + D->n * c->d_step + D->hp_remaining/c->hp_delta] = r;
+}
+
+static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c);
+
 plist_t * sim(attacker_t A, defender_t D)
 {
 	int i, j;
 	plist_t *ret, *p, **pnext;
+	/*
 	struct ss_res_ ss_res;
 
 	ss_res.hp_delta = min_hp_change(A);
@@ -50,34 +81,104 @@ plist_t * sim(attacker_t A, defender_t D)
 	ss_res.D = calloc((D->n+1) * ss_res.D_hp_step, sizeof(double));
 
 	sim_sub(A, D, 1, &ss_res);
+	*/
+	ss_res_t *ss_res = sim_attacks(A, D, sa_c_new(A, D));
+
 	pnext = &ret;
 	for (i = A->n; i >= 0; i--) {
-		if (ss_res.A[i] == 0)
+		if (ss_res->A[i] == 0)
 			continue;
 		*pnext = p = new_plist();
 		pnext = &p->next;
 		p->Na = i;
 		p->Nd = 0;
-		p->p = ss_res.A[i];
+		p->p = ss_res->A[i];
 		p->hp_remaining = 0;
 	}
 
 	for (i = 0; i <= D->n; i++) {
-		for (j = 0; j < ss_res.D_hp_step; j++){
-			if (!ss_res.D[i*ss_res.D_hp_step+j])
+		for (j = 0; j < ss_res->D_hp_step; j++){
+			if (!ss_res->D[i*ss_res->D_hp_step+j])
 				continue;
 			*pnext = p = new_plist();
 			pnext = &p->next;
 			p->Na = 0;
 			p->Nd = i;
-			p->p = ss_res.D[i*ss_res.D_hp_step+j];
-			p->hp_remaining = D->hp - (ss_res.D_hp_step-j-1)*ss_res.hp_delta;
+			p->p = ss_res->D[i*ss_res->D_hp_step+j];
+			p->hp_remaining = D->hp - (ss_res->D_hp_step-j-1)*ss_res->hp_delta;
 		}
 	}
 	*pnext = NULL;
-	free(ss_res.A);
-	free(ss_res.D);
+	//free(ss_res.A);
+	//free(ss_res.D);
 	return ret;
+}
+
+static ss_res_t * new_ss_res(attacker_t A, defender_t D)
+{
+	ss_res_t * ss_res = malloc(sizeof(ss_res_t));
+	ss_res->hp_delta = min_hp_change(A);
+	ss_res->D_hp_step = D->hp/ss_res->hp_delta + 1;
+	ss_res->A = calloc(A->n+1, sizeof(double));
+	ss_res->D = calloc((D->n+1) * ss_res->D_hp_step, sizeof(double));
+	return ss_res;
+}
+
+static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c)
+{
+	ss_res_t *r_out, *r1, *r2;
+	int Dn_in, hp_in, i;
+
+	if ((r_out = sa_c_get(A, D, c)))
+		return r_out;
+
+	r_out = new_ss_res(A, D);
+	if (A->n == 0) {
+		r_out->D[D->n * r_out->D_hp_step + D->hp_remaining/r_out->hp_delta] = 1;
+		sa_c_put(A, D, r_out, c);
+		return r_out;
+	}
+	if (D->n == 0) {
+		r_out->A[A->n] = 1;
+		sa_c_put(A, D, r_out, c);
+		return r_out;
+	}
+	hp_in = D->hp_remaining;
+	Dn_in = D->n;
+	A->n--;
+	if (hp_in > A->dmg_max)
+		D->hp_remaining = hp_in - A->dmg_max;
+	else {
+		D->n = Dn_in - 1;
+		D->hp_remaining = D->n ? D->hp : 0;
+	}
+	r1 = sim_attacks(A, D, c);
+	if (hp_in > A->dmg_min)
+		D->hp_remaining = hp_in - A->dmg_min;
+	else {
+		D->n = Dn_in - 1;
+		D->hp_remaining = D->n ? D->hp : 0;
+	}
+	r2 = sim_attacks(A, D, c);
+
+	memcpy(r_out->A, r1->A, (A->n+1) * sizeof(double));
+	for (i = 0; i < (A->n+1); i++)
+		r_out->A[i] *= A->accuracy;
+	memcpy(r_out->D, r1->D, (D->n+1) * r1->D_hp_step * sizeof(double));
+	for (i = 0; i < (D->n+1)*r1->D_hp_step; i++)
+		r_out->D[i] *= A->accuracy;
+	for (i = 0; i < (A->n+1); i++)
+		r_out->A[i] += r2->A[i] * (1-A->accuracy);
+	for (i = 0; i < (D->n+1)*r2->D_hp_step; i++)
+		r_out->D[i] += r2->D[i] * (1-A->accuracy);
+
+	A->n++;
+	D->n = Dn_in;
+	D->hp_remaining = hp_in;
+
+	sa_c_put(A, D, r_out, c);
+
+	return r_out;
 }
 
 static void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res)
