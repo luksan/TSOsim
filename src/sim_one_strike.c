@@ -9,38 +9,49 @@
 
 #define SWAP_PTRS(a, b) do { void *t = (a); (a) = (b); (b) = t; } while (0)
 
+struct ss_res_ {
+	double *A;
+	double *D;
+	int hp_delta;
+	int D_hp_step;
+};
+
 /* function declarations */
 
 static parray_t kill_one_defender(attacker_t A, defender_t D);
 static plist_t * attack_one_defender( attacker_t A, defender_t D );
 static plist_t * kill_defenders(attacker_t A, defender_t D);
-static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in);
+static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
 static int sure_kills(attacker_t A, defender_t D);
 static void attack_one_defender1(const int n_sure_kill, attacker_t A, const int hp, parray_t parr);
-static void sim_sub(attacker_t A, defender_t D, double p_in);
+static void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
+static inline int min(int a, int b);
 
 typedef unsigned long ULONG;
 static ULONG binomial(int n, int k);
 
 /* probability calculations */
 
-struct dp {
-	double p;
-	int hp;
-};
-
-static struct {
-	double A[251];
-	struct dp *D[251];
-} ss_res;
+static int min_hp_change(attacker_t A)
+{
+	if (!A->dmg_min || A->dmg_min == A->dmg_max) return A->dmg_max;
+	return min(A->dmg_min, A->dmg_max - A->dmg_min);
+}
 
 plist_t * sim(attacker_t A, defender_t D)
 {
 	int i, j;
 	plist_t *ret, *p, **pnext;
-	sim_sub(A, D, 1);
+	struct ss_res_ ss_res;
+
+	ss_res.hp_delta = min_hp_change(A);
+	ss_res.D_hp_step = D->hp/ss_res.hp_delta + 1;
+	ss_res.A = calloc(A->n+1, sizeof(double));
+	ss_res.D = calloc((D->n+1) * ss_res.D_hp_step, sizeof(double));
+
+	sim_sub(A, D, 1, &ss_res);
 	pnext = &ret;
-	for (i = 250; i >= 0; i--) {
+	for (i = A->n; i >= 0; i--) {
 		if (ss_res.A[i] == 0)
 			continue;
 		*pnext = p = new_plist();
@@ -50,64 +61,54 @@ plist_t * sim(attacker_t A, defender_t D)
 		p->p = ss_res.A[i];
 		p->hp_remaining = 0;
 	}
-	for (i = 0; i < 251; i++) {
-		if (!ss_res.D[i])
-			continue;
-		for (j = 0; ss_res.D[i][j].hp != 0; j++) {
+
+	for (i = 0; i <= D->n; i++) {
+		for (j = 0; j < ss_res.D_hp_step; j++){
+			if (!ss_res.D[i*ss_res.D_hp_step+j])
+				continue;
 			*pnext = p = new_plist();
 			pnext = &p->next;
 			p->Na = 0;
 			p->Nd = i;
-			p->p = ss_res.D[i][j].p;
-			p->hp_remaining = ss_res.D[i][j].hp;
+			p->p = ss_res.D[i*ss_res.D_hp_step+j];
+			p->hp_remaining = D->hp - (ss_res.D_hp_step-j-1)*ss_res.hp_delta;
 		}
-		free(ss_res.D[i]);
 	}
 	*pnext = NULL;
+	free(ss_res.A);
+	free(ss_res.D);
 	return ret;
 }
 
-static void sim_sub(attacker_t A, defender_t D, double p_in)
+static void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res)
 {
 	int sk;
 	plist_t *p1 = NULL, *p2;
 	if (D->n == 0) {
-		ss_res.A[A->n] += p_in;
+		ss_res->A[A->n] += p_in;
 		return;
 	}
 	if (A->n == 0) {
-		struct dp *d;
-		int i = 0;
-		d = ss_res.D[D->n];
-		if (d)
-			for (; d[i].hp != 0 && d[i].hp != D->hp_remaining; i++);
-		if (!d || d[i].hp != D->hp_remaining) {
-			d = ss_res.D[D->n] = realloc(d, (i+2) * sizeof(struct dp));
-			d[i].hp = D->hp_remaining;
-			d[i].p = p_in;
-			d[i+1].hp = 0;
-			d[i+1].p = 0;
-		} else
-			d[i].p += p_in;
+		ss_res->D[D->n*ss_res->D_hp_step + D->hp_remaining/ss_res->hp_delta] += p_in;
 		return;
 	}
 
 	sk = sure_kills(A, D);
 	if (sk == 0) { // no sure kills remaining
 		p1 = attack_one_defender(A, D);
-		for_each_sub_sim(p1, A, D, p_in);
+		for_each_sub_sim(p1, A, D, p_in, ss_res);
 		return;
 	}
 	p1 = kill_defenders(A, D);
 	if (sk == D->n) { //all defenders are sure to be killed
 		for (p2 = p1; p2; p2 = p2->next)
-			ss_res.A[p2->Na] += p2->p*p_in;
+			ss_res->A[p2->Na] += p2->p*p_in;
 		plist_free(p1);
 	} else
-		for_each_sub_sim(p1, A, D, p_in);
+		for_each_sub_sim(p1, A, D, p_in, ss_res);
 }
 
-static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in)
+static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res)
 {
 	int Na_in, Nd_in, hp_in;
 	Na_in = A->n;
@@ -117,7 +118,7 @@ static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_i
 		A->n = p1->Na;
 		D->n = p1->Nd;
 		D->hp_remaining = p1->hp_remaining;
-		sim_sub(A, D, p_in*p1->p);
+		sim_sub(A, D, p_in*p1->p, ss_res);
 	}
 	A->n = Na_in;
 	D->n = Nd_in;
@@ -126,7 +127,7 @@ static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_i
 
 static inline int min_attackers(int dmg_min, int hp)
 {
-	return dmg_min ? (hp + dmg_min - 1) / dmg_min : 50000; // ceil(a/b)
+	return dmg_min ? (hp + dmg_min - 1) / dmg_min : INT_MAX; // ceil(a/b)
 }
 
 static inline int min(int a, int b)
