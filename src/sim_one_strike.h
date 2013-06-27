@@ -29,6 +29,7 @@ typedef struct ss_res_ {
 } ss_res_t;
 
 void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
+plist_t * attack_one_defender(attacker_t A, defender_t D);
 
 /* sim_attacks() */
 typedef struct {

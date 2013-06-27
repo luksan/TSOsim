@@ -7,7 +7,6 @@
 #define SWAP_PTRS(a, b) do { void *t = (a); (a) = (b); (b) = t; } while (0)
 
 static parray_t kill_one_defender(attacker_t A, defender_t D);
-static plist_t * attack_one_defender( attacker_t A, defender_t D );
 static plist_t * kill_defenders(attacker_t A, defender_t D);
 static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
 static int sure_kills(attacker_t A, defender_t D);
@@ -223,7 +222,7 @@ static void aod_cache_put(int na_min, attacker_t A, int hp, plist_t *p)
 	aod_cache = n;
 }
 
-static plist_t * attack_one_defender(attacker_t A, defender_t D)
+plist_t * attack_one_defender(attacker_t A, defender_t D)
 {
 	int Na_min;
 	plist_t *p, *out;

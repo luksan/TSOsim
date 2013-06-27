@@ -7,8 +7,41 @@
 #include "sim_one_strike.h"
 
 /* function declarations */
+void print_plist(plist_t *p);
 
 /* probability calculations */
+
+static inline int div_up(int a, int b)
+{
+	return (a+b-1)/b; // ceil(a/b)
+}
+
+ss_res_t * sim_dmg_max(attacker_t A, defender_t D)
+{
+	int Na, Na_in, Nd_in, i, p2_len;
+	plist_t *p1, *p2, *p3, *p4, **pn, **pp;
+	parray_t pa;
+	Na_in = A->n;
+	Nd_in = D->n;
+	Na = div_up(D->hp, A->dmg_max);
+	A->n = Na;
+	D->n = 2;
+	p1 = attack_one_defender(A, D);
+	pn = &p3; pp = &p1;
+	for (p2 = p1; p2; p2 = p2->next) {
+		if (p2->hp_remaining == D->hp) { // kill or miss
+			*pn = p2;
+			pn = &p2->next;
+		} else {
+			*pp = p2;
+			pp = &p2->next;
+		}
+	}
+	*pp = NULL;
+	*pn = NULL;
+	print_plist(p1);
+	print_plist(p3);
+}
 
 plist_t * sim(attacker_t A, defender_t D)
 {
@@ -81,7 +114,7 @@ int main(int argc, char **argv)
 {
 	struct attacker A = {
 		.n = 200,
-		.dmg_min = 15,
+		.dmg_min = 0,
 		.dmg_max = 30,
 		.accuracy = 0.8,
 	};
@@ -95,8 +128,9 @@ int main(int argc, char **argv)
 	//pa = kill_one_defender(&A, &D);
 	//pa = attack_one_defender(&A, &D);
 	//print_parray(pa);
-	p = sim(&A, &D);
-	print_plist(p);
+	//p = sim(&A, &D);
+	sim_dmg_max(&A, &D);
+	//print_plist(p);
 	for (int i = 0; i < 2; i++) {
 		//p = sim(&A, &D);
 		//p = kill_defenders(&A, &D);
