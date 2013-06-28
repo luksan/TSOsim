@@ -16,6 +16,17 @@ static inline int div_up(int a, int b)
 	return (a+b-1)/b; // ceil(a/b)
 }
 
+double * mk_p_matrix(int size, double p)
+{
+	double *m = malloc(size*size*sizeof(double));
+	int i, j;
+	double p1, p2;
+	for (i = 0, p1 = 1; i < size; i++, p1*=p)
+		for (j = (size-i-1), p2 = pow(1-p, j); j < size; j++, p2*=(1-p))
+			m[i*size+j] = p1*p2;
+	return m;
+}
+
 ss_res_t * sim_dmg_max(attacker_t A, defender_t D)
 {
 	int Na, Na_in, Nd_in, i, p2_len;

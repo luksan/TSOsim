@@ -73,6 +73,16 @@ binom(N, K, K, Acc) ->
 binom(N, K, I, Acc) ->
 	binom(N, K, I+1, (Acc * (N-I+1)) div I).
 
+% probability of making K trials before R fails are observed,
+% with success probability P
+neg_binom_pmf(K, R, P) ->
+	binom(K-1, K-R)*math:pow(1-P, R)*math:pow(P, K-R).
+
+neg_binom_cdf(R, R, P) ->
+	neg_binom_pmf(R, R, P);
+neg_binom_cdf(K, R, P) ->
+	neg_binom_cdf(K-1, R, P) + neg_binom_pmf(K, R, P).
+
 % Helper for merging prob dicts
 add_prob(_, P1, P2) ->
 	P1+P2.
