@@ -26,13 +26,14 @@ sim(A = #attacker{}, D = #defender{}) ->
 get_test_units() -> 
 	HP = 40,
 	{
-	 #attacker{n = 200, dmg_min = 15, dmg_max = 30, accuracy = 0.8},
-	 #defender{n = 100, hp = HP, hp_remaining = HP}
+	 #attacker{n = 200, dmg_min = 0, dmg_max = 20, accuracy = 0.8},
+	 #defender{n = 10, hp = HP, hp_remaining = HP}
 	}.
 
 test_sim() ->
 	{A, D} = get_test_units(),
-	X = dict:to_list(sim(A, D)),
+	%X = dict:to_list(sim(A, D)),
+	X = dict:to_list(sim_zero_min_dmg(A, D)),
 	lists:reverse(lists:keysort(2, X)).
 
 diff_lists(A, B) ->
@@ -57,31 +58,51 @@ ceiling(X) ->
         false -> T + 1
     end.
 
+div_up(A, B) when is_integer(A), is_integer(B) -> (A+B-1) div B;
+div_up(A, B) -> ceiling(A/B).
+
 % Computes the binomial coefficient N over K
-binom(K, K) ->
-	1;
-binom(N, 0) when is_integer(N), N > 0 ->
-	1;
-binom(0, K) when is_integer(K), K > 0 ->
-	0;
-binom(N, 1) ->
-	N;
+binom(K, K) -> 1;
+binom(N, 0) when is_integer(N), N > 0 -> 1;
+binom(0, K) when is_integer(K), K > 0 -> 0;
+binom(N, 1) -> N;
 binom(N, K) when is_integer(N), is_integer(K), (N >= 0), (K >= 1), (N >= K) ->
 	binom(N, K, 1, 1).
-binom(N, K, K, Acc) ->
-	(Acc * (N-K+1)) div K;
-binom(N, K, I, Acc) ->
-	binom(N, K, I+1, (Acc * (N-I+1)) div I).
+
+binom(N, K, K, Acc) -> (Acc * (N-K+1)) div K;
+binom(N, K, I, Acc) -> binom(N, K, I+1, (Acc * (N-I+1)) div I).
 
 % probability of making K trials before R fails are observed,
 % with success probability P
-neg_binom_pmf(K, R, P) ->
+neg_binom_pmf(K, R, P) when K >= R ->
 	binom(K-1, K-R)*math:pow(1-P, R)*math:pow(P, K-R).
 
-neg_binom_cdf(R, R, P) ->
-	neg_binom_pmf(R, R, P);
-neg_binom_cdf(K, R, P) ->
-	neg_binom_cdf(K-1, R, P) + neg_binom_pmf(K, R, P).
+szmd_p(Na_hit, #attacker{n = Na, accuracy = Acc}) ->
+	binom(Na, Na_hit)*math:pow(Acc, Na_hit)*math:pow(1-Acc, Na-Na_hit).
+
+sim_zero_min_dmg(A = #attacker{n = Na, dmg_min = 0}, D = #defender{}) ->
+	sim_zero_min_dmg(Na, A, D, dict:new()).
+
+sim_zero_min_dmg(_Na_hit, #attacker{n = Na}, #defender{n = 0}, Pdict) ->
+	dict:store({Na, 0, 0}, 1, Pdict);
+sim_zero_min_dmg(0, #attacker{n = Na, accuracy = Acc}, #defender{n = Nd, hp_remaining = HP}, Pdict) ->
+	dict:store({0, Nd, HP}, math:pow(1-Acc, Na), Pdict);
+sim_zero_min_dmg(Na_hit, A = #attacker{dmg_max = Dmg}, D = #defender{n = Nd, hp_remaining = HPr}, Pdict) 
+  when Na_hit*Dmg < HPr ->
+	P = dict:store({0, Nd, HPr-Na_hit*Dmg}, szmd_p(Na_hit, A), Pdict),
+	sim_zero_min_dmg(Na_hit-1, A, D, P);
+sim_zero_min_dmg(Na_hit, A = #attacker{dmg_max = Dmg}, D = #defender{n = Nd, hp = HP, hp_remaining = HPr}, Pdict)
+  when (HPr + Dmg -1) div Dmg + ((HP + Dmg -1) div Dmg)*(Nd-1) > Na_hit ->
+	Aloss1 = div_up(HPr, Dmg),
+	ApD = div_up(HP, Dmg),
+	Dloss2 = (Na_hit-Aloss1) div ApD,
+	Admg = Na_hit - Aloss1 - Dloss2 * ApD,
+	P = dict:store({0, Nd-1-Dloss2, HP-Admg*Dmg}, szmd_p(Na_hit, A), Pdict),
+	sim_zero_min_dmg(Na_hit-1, A, D, P);
+sim_zero_min_dmg(Na_tot, A = #attacker{n = Na, dmg_max = Dmg, accuracy = Acc}, D = #defender{n = Nd, hp = HP, hp_remaining = HPr}, Pdict) ->
+	Na_hit = div_up(HPr, Dmg) + div_up(HP, Dmg)*(Nd-1),
+	Pd2 = dict:store({Na-Na_tot, 0, 0}, neg_binom_pmf(Na_tot, Na_hit, 1-Acc), Pdict),
+	sim_zero_min_dmg(Na_tot-1, A, D, Pd2).
 
 % Helper for merging prob dicts
 add_prob(_, P1, P2) ->
