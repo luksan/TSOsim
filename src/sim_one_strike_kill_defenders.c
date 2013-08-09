@@ -8,10 +8,10 @@
 
 static parray_t kill_one_defender(attacker_t A, defender_t D);
 static void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
-static plist_t * kill_defenders(attacker_t A, defender_t D);
 static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
 static int sure_kills(attacker_t A, defender_t D);
 static void attack_one_defender1(const int n_sure_kill, attacker_t A, const int hp, parray_t parr);
+static plist_t * attack_one_defender(attacker_t A, defender_t D);
 
 typedef unsigned long ULONG;
 static ULONG binomial(int n, int k);
@@ -198,7 +198,7 @@ plist_t * kill_defenders(attacker_t A, defender_t D)
 	p_term *p0;
 
 	dloss = sure_kills(A, D);
-	if (!dloss)
+	if (!dloss || D->hp != D->hp_remaining)
 		return NULL;
 
 	if (kill_defenders_get_p0(A, D, &p0, &p0_len) < 0)
@@ -272,7 +272,7 @@ static void aod_cache_put(int na_min, attacker_t A, int hp, plist_t *p)
 	aod_cache = n;
 }
 
-plist_t * attack_one_defender(attacker_t A, defender_t D)
+static plist_t * attack_one_defender(attacker_t A, defender_t D)
 {
 	int Na_min;
 	plist_t *p, *out;

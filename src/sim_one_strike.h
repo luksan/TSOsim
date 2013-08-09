@@ -26,13 +26,15 @@ typedef struct ss_res_ {
 	double * D;
 	int hp_delta;
 	int D_hp_step;
+	int A_len;
+	int D_len;
 } ss_res_t;
 
 ss_res_t * new_ss_res(attacker_t A, defender_t D);
 void ss_res_free(ss_res_t *s);
 
 ss_res_t * sim_one_strike_kill_defenders(attacker_t A, defender_t D);
-plist_t * attack_one_defender(attacker_t A, defender_t D);
+plist_t * kill_defenders(attacker_t A, defender_t D);
 
 /* sim_attacks() */
 typedef struct {

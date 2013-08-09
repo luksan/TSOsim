@@ -27,7 +27,7 @@ double * mk_p_matrix(int size, double p)
 	return m;
 }
 
-#define SIM_KILL_DEFENDERS 1
+#define SIM_KILL_DEFENDERS 0
 ss_res_t * new_ss_res(attacker_t A, defender_t D);
 void ss_res_free(ss_res_t *s);
 
