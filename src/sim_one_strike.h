@@ -22,8 +22,8 @@ plist_t * sim(attacker_t A, defender_t D);
 
 /* sim_sub() */
 typedef struct ss_res_ {
-	double * restrict A;
-	double * restrict D;
+	double * A;
+	double * D;
 	int hp_delta;
 	int D_hp_step;
 } ss_res_t;
@@ -37,7 +37,7 @@ typedef struct {
 	int d_step;
 	int hp_delta;
 	int len;
-	ss_res_t ** restrict r;
+	ss_res_t ** r;
 } sa_cache_t;
 
 ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c);

@@ -34,7 +34,7 @@ void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_r
 	}
 
 	sk = sure_kills(A, D);
-	if (sk == 0) { // no sure kills remaining
+	if (sk == 0 || D->hp != D->hp_remaining) { // no sure kills remaining
 		p1 = attack_one_defender(A, D);
 		for_each_sub_sim(p1, A, D, p_in, ss_res);
 		return;
@@ -126,15 +126,69 @@ static int kill_defenders_get_p0(attacker_t A, defender_t D, p_term **p0, int *p
 	return 0;
 }
 
+static void poly_mul(double a[], const int a_start, const int a_len,
+		     const double b[], const int b_start, const int b_len)
+{
+	int x,y, r_len = a_len + b_len - 1;
+	double res[r_len];
+	memset(res, 0, r_len*sizeof(double));
+	for (x = a_start; x < a_len; ++x)
+		for (y = b_start; y < b_len; ++y)
+			res[x+y] += a[x] * b[y];
+	memcpy(a, res, r_len*sizeof(double));
+}
+
+static void poly_square(double p[], const int p_start, const int p_len)
+{
+	int a, b;
+	const int r_len = p_len*2 - 1;
+	double pt, res[r_len];
+	memset(res, 0, r_len*sizeof(double));
+	for (a = p_start; a < p_len; ++a) {
+		res[a<<1] += p[a]*p[a];
+		pt = p[a]*2;
+		for (b = a+1; b < p_len; ++b)
+			res[a+b] += pt*p[b];
+	}
+	memcpy(p, res, r_len*sizeof(double));
+}
+
+static void poly_pow(const p_term p[], const int p_len, int b, double result[], int *result_len)
+{
+	const int alloc = p[p_len-1].n*b+1;
+	double a[alloc];
+	int res_start, a_start, res_len, a_len, i;
+
+	a_start = res_start = p[0].n;
+	for (i = 0; i < p_len; ++i)
+		result[p[i].n] = p[i].p;
+	a_len = res_len = p[p_len-1].n+1;
+	if (--b)
+		memcpy(a, result, alloc*sizeof(double));
+	while (b) {
+		if (b&1) {
+			poly_mul(result, res_start, res_len, a, a_start, a_len);
+			res_start = res_start + a_start;
+			res_len = res_len + a_len - 1;
+		}
+		if ((b >>= 1)) {
+			poly_square(a, a_start, a_len);
+			a_start <<= 1;
+			a_len = a_len * 2 - 1;
+		}
+	}
+	*result_len = res_len;
+}
+
 /*
  * Remove defenders that will die for sure, due to number of attackers
  * Return list of {attackers remaining, prob}
  */
 plist_t * kill_defenders(attacker_t A, defender_t D)
 {
-	int dloss, i,j, p1_i, p2_start, p0_len, p_alloc;
+	int dloss, p1_i, p0_len, p1_len;
 	p_term *p0;
-	double *p1, *p2;
+
 	dloss = sure_kills(A, D);
 	if (!dloss)
 		return NULL;
@@ -142,31 +196,21 @@ plist_t * kill_defenders(attacker_t A, defender_t D)
 	if (kill_defenders_get_p0(A, D, &p0, &p0_len) < 0)
 		return NULL;
 
-	p_alloc = p0[p0_len-1].n*dloss + 1;
-	p1 = calloc(p_alloc, sizeof(double));
-	p2 = malloc(p_alloc*sizeof(double));
-	for (i = 0; i < p0_len; i++)
-		p1[p0[i].n] = p0[i].p;
+	const int alloc = p0[p0_len-1].n * dloss + 1;
+	double p1[alloc];
+	memset(p1, 0, alloc*sizeof(double));
 
-	p2_start = p0[0].n;
-	for (i = 1; i < dloss; i++) { // multiply polynomials
-		memset(p2, 0, p_alloc*sizeof(double));
-		for (p1_i = p2_start; p1_i < p_alloc && p1[p1_i]; p1_i++)
-			for (j = 0; j < p0_len; j++)
-				p2[p1_i+p0[j].n] += p0[j].p * p1[p1_i];
-		p2_start += p0[0].n;
-		SWAP_PTRS(p1, p2);
-	}
+	poly_pow(p0, p0_len, dloss, p1, &p1_len);
+
 	plist_t *p_out = NULL;
-	for (p1_i = 0; p1_i < p_alloc; p1_i++) {
+	for (p1_i = 0; p1_i < p1_len; p1_i++) {
 		if (p1[p1_i] == 0)
 			continue;
 		int Nd = D->n - dloss;
 		p_out = set_p_element(new_plist(), A->n - p1_i, Nd, Nd ? D->hp : 0, p1[p1_i], p_out);
 	}
 	//free(p0); it's cached
-	free(p1);
-	free(p2);
+
 	return p_out;
 }
 

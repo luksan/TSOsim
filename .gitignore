@@ -6,3 +6,4 @@ callgrind.*
 a.out
 gmon.out
 perf.data
+/ebin

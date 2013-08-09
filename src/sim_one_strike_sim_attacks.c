@@ -13,7 +13,7 @@ static int min_hp_change(attacker_t A)
 	return min(A->dmg_min, A->dmg_max - A->dmg_min);
 }
 
-static ss_res_t * new_ss_res(attacker_t A, defender_t D)
+ss_res_t * new_ss_res(attacker_t A, defender_t D)
 {
 	ss_res_t * ss_res = malloc(sizeof(ss_res_t));
 	ss_res->hp_delta = min_hp_change(A);
@@ -23,7 +23,7 @@ static ss_res_t * new_ss_res(attacker_t A, defender_t D)
 	return ss_res;
 }
 
-static void ss_res_free(ss_res_t *s)
+void ss_res_free(ss_res_t *s)
 {
 	if (!s) return;
 	free(s->A);
@@ -98,22 +98,23 @@ ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c)
 		memcpy(r_out->A, r1->A, (A->n+1) * sizeof(double));
 		memcpy(r_out->D, r1->D, (D->n+1) * r1->D_hp_step * sizeof(double));
 		goto sa_out;
-	}
-	D->n = Dn_in;
-	D->hp_remaining = hp_in - A->dmg_min;
+	} else {
+		D->n = Dn_in;
+		D->hp_remaining = hp_in - A->dmg_min;
 
-	r1 = sim_attacks(A, D, c);
-	p = 1 - A->accuracy;
-	n = A->n+1;
-	memcpy(r_out->A, r1->A, n * sizeof(double));
-	for (i = 0, n = A->n+1; i < n; i++)
-		if (r_out->A[i])
-			r_out->A[i] *= p;
-	n = (D->n+1)*r1->D_hp_step;
-	memcpy(r_out->D, r1->D, n * sizeof(double));
-	for (i = 0; i < n; i++)
-		if (r_out->D[i])
-			r_out->D[i] *= p;
+		r1 = sim_attacks(A, D, c);
+		p = 1 - A->accuracy;
+		n = A->n+1;
+		memcpy(r_out->A, r1->A, n * sizeof(double));
+		for (i = 0, n = A->n+1; i < n; i++)
+			if (r_out->A[i])
+				r_out->A[i] *= p;
+		n = (D->n+1)*r1->D_hp_step;
+		memcpy(r_out->D, r1->D, n * sizeof(double));
+		for (i = 0; i < n; i++)
+			if (r_out->D[i])
+				r_out->D[i] *= p;
+	}
 	
 	if (hp_in > A->dmg_max) {
 		D->n = Dn_in;

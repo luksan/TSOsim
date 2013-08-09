@@ -54,6 +54,10 @@ ss_res_t * sim_dmg_max(attacker_t A, defender_t D)
 	print_plist(p3);
 }
 
+#define SIM_KILL_DEFENDERS 1
+ss_res_t * new_ss_res(attacker_t A, defender_t D);
+void ss_res_free(ss_res_t *s);
+
 plist_t * sim(attacker_t A, defender_t D)
 {
 	int i, j;
@@ -61,13 +65,13 @@ plist_t * sim(attacker_t A, defender_t D)
 	sa_cache_t *c;
 	
 	ss_res_t *ss_res;
-	/*
+#if SIM_KILL_DEFENDERS
 	ss_res = new_ss_res(A, D);
 	sim_sub(A, D, 1, ss_res);
-*/
+#else
 	c = sa_c_new(A, D);
 	ss_res = sim_attacks(A, D, c);
-
+#endif
 	pnext = &ret;
 	for (i = A->n; i >= 0; i--) {
 		if (ss_res->A[i] == 0)
@@ -93,8 +97,11 @@ plist_t * sim(attacker_t A, defender_t D)
 		}
 	}
 	*pnext = NULL;
-	//ss_res_free(ss_res);
+#if SIM_KILL_DEFENDERS
+	ss_res_free(ss_res);
+#else
 	sa_c_free(c);
+#endif
 	return ret;
 }
 
@@ -125,7 +132,7 @@ int main(int argc, char **argv)
 {
 	struct attacker A = {
 		.n = 200,
-		.dmg_min = 0,
+		.dmg_min = 15,
 		.dmg_max = 30,
 		.accuracy = 0.8,
 	};
@@ -139,9 +146,9 @@ int main(int argc, char **argv)
 	//pa = kill_one_defender(&A, &D);
 	//pa = attack_one_defender(&A, &D);
 	//print_parray(pa);
-	//p = sim(&A, &D);
-	sim_dmg_max(&A, &D);
-	//print_plist(p);
+	p = sim(&A, &D);
+	//sim_dmg_max(&A, &D);
+	print_plist(p);
 	for (int i = 0; i < 2; i++) {
 		//p = sim(&A, &D);
 		//p = kill_defenders(&A, &D);
