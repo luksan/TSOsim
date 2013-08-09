@@ -28,7 +28,10 @@ typedef struct ss_res_ {
 	int D_hp_step;
 } ss_res_t;
 
-void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
+ss_res_t * new_ss_res(attacker_t A, defender_t D);
+void ss_res_free(ss_res_t *s);
+
+ss_res_t * sim_one_strike_kill_defenders(attacker_t A, defender_t D);
 plist_t * attack_one_defender(attacker_t A, defender_t D);
 
 /* sim_attacks() */
@@ -40,9 +43,6 @@ typedef struct {
 	ss_res_t ** r;
 } sa_cache_t;
 
-ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c);
-
-sa_cache_t * sa_c_new(attacker_t A, defender_t D);
-void sa_c_free(sa_cache_t *c);
+ss_res_t * sim_one_strike_attacks(attacker_t A, defender_t D);
 
 #endif

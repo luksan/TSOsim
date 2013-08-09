@@ -7,6 +7,7 @@
 #define SWAP_PTRS(a, b) do { void *t = (a); (a) = (b); (b) = t; } while (0)
 
 static parray_t kill_one_defender(attacker_t A, defender_t D);
+static void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
 static plist_t * kill_defenders(attacker_t A, defender_t D);
 static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
 static int sure_kills(attacker_t A, defender_t D);
@@ -15,12 +16,19 @@ static void attack_one_defender1(const int n_sure_kill, attacker_t A, const int 
 typedef unsigned long ULONG;
 static ULONG binomial(int n, int k);
 
+ss_res_t * sim_one_strike_kill_defenders(attacker_t A, defender_t D)
+{
+	ss_res_t *ss_res = new_ss_res(A, D);
+	sim_sub(A, D, 1, ss_res);
+	return ss_res;
+}
+
 static inline int min(int a, int b)
 {
 	return a < b ? a : b;
 }
 
-void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res)
+static void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res)
 {
 	int sk;
 	plist_t *p1 = NULL, *p2;
@@ -233,8 +241,6 @@ static parray_t kill_one_defender(attacker_t A, defender_t D)
 	}
 	return parr;
 }
-
-static int calls;
 
 typedef struct x_ {
 	int hp;

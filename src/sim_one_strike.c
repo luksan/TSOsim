@@ -27,33 +27,6 @@ double * mk_p_matrix(int size, double p)
 	return m;
 }
 
-ss_res_t * sim_dmg_max(attacker_t A, defender_t D)
-{
-	int Na, Na_in, Nd_in, i, p2_len;
-	plist_t *p1, *p2, *p3, *p4, **pn, **pp;
-	parray_t pa;
-	Na_in = A->n;
-	Nd_in = D->n;
-	Na = div_up(D->hp, A->dmg_max);
-	A->n = Na;
-	D->n = 2;
-	p1 = attack_one_defender(A, D);
-	pn = &p3; pp = &p1;
-	for (p2 = p1; p2; p2 = p2->next) {
-		if (p2->hp_remaining == D->hp) { // kill or miss
-			*pn = p2;
-			pn = &p2->next;
-		} else {
-			*pp = p2;
-			pp = &p2->next;
-		}
-	}
-	*pp = NULL;
-	*pn = NULL;
-	print_plist(p1);
-	print_plist(p3);
-}
-
 #define SIM_KILL_DEFENDERS 1
 ss_res_t * new_ss_res(attacker_t A, defender_t D);
 void ss_res_free(ss_res_t *s);
@@ -62,15 +35,12 @@ plist_t * sim(attacker_t A, defender_t D)
 {
 	int i, j;
 	plist_t *ret, *p, **pnext;
-	sa_cache_t *c;
 	
 	ss_res_t *ss_res;
 #if SIM_KILL_DEFENDERS
-	ss_res = new_ss_res(A, D);
-	sim_sub(A, D, 1, ss_res);
+	ss_res = sim_one_strike_kill_defenders(A, D);
 #else
-	c = sa_c_new(A, D);
-	ss_res = sim_attacks(A, D, c);
+	ss_res = sim_one_strike_attacks(A, D);
 #endif
 	pnext = &ret;
 	for (i = A->n; i >= 0; i--) {
@@ -97,11 +67,7 @@ plist_t * sim(attacker_t A, defender_t D)
 		}
 	}
 	*pnext = NULL;
-#if SIM_KILL_DEFENDERS
 	ss_res_free(ss_res);
-#else
-	sa_c_free(c);
-#endif
 	return ret;
 }
 

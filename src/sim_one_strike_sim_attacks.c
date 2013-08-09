@@ -2,6 +2,25 @@
 
 #include "sim_one_strike.h"
 
+/*
+ * Simulate the strike attack by attack, while caching the partial probability tree
+ */
+
+static sa_cache_t * sa_c_new(attacker_t A, defender_t D);
+static void sa_c_free(sa_cache_t *c);
+static void sa_c_detach(const ss_res_t const *ss_res, sa_cache_t *c);
+static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c);
+
+ss_res_t * sim_one_strike_attacks(attacker_t A, defender_t D)
+{
+	ss_res_t *ss_res;
+	sa_cache_t *c = sa_c_new(A, D);
+	ss_res = sim_attacks(A, D, c);
+	sa_c_detach(ss_res, c);
+	sa_c_free(c);
+	return ss_res;
+}
+
 static inline int min(int a, int b)
 {
 	return a < b ? a : b;
@@ -31,7 +50,7 @@ void ss_res_free(ss_res_t *s)
 	free(s);
 }
 
-sa_cache_t * sa_c_new(attacker_t A, defender_t D)
+static sa_cache_t * sa_c_new(attacker_t A, defender_t D)
 {
 	sa_cache_t *c;
 	c = malloc(sizeof(sa_cache_t));
@@ -66,7 +85,18 @@ static void sa_c_put(attacker_t A, defender_t D, ss_res_t *r, sa_cache_t *c)
 	//printf("PUT: Na %i, Nd %i, hp %i\n", A->n, D->n, D->hp_remaining);
 }
 
-ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c)
+// Transfers ownership of the ss_res memory to the caller
+static void sa_c_detach(const ss_res_t const *ss_res, sa_cache_t *c)
+{
+	int i;
+	for (i = c->len-1; i >= 0; --i)
+		if (c->r[i] == ss_res) {
+			c->r[i] = NULL;
+			return;
+		}
+}
+
+static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c)
 {
 	ss_res_t *r_out, *r1, *r2;
 	int Dn_in, hp_in, i, n;
@@ -91,7 +121,7 @@ ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t *c)
 	Dn_in = D->n;
 	A->n--;
 
-	if (hp_in < A->dmg_min) {
+	if (hp_in <= A->dmg_min) {
 		D->n = Dn_in - 1;
 		D->hp_remaining = D->n ? D->hp : 0;
 		r1 = sim_attacks(A, D, c);
