@@ -37,6 +37,8 @@ ss_res_t * new_ss_res(attacker_t A, defender_t D)
 	ss_res_t * s = malloc(sizeof(ss_res_t));
 	s->hp_delta = min_hp_change(A);
 	s->D_hp_step = D->hp/s->hp_delta + 1;
+	s->A_start = 0;
+	s->D_start = 0;
 	s->A_len = A->n+1;
 	s->D_len = (D->n+1) * s->D_hp_step;
 	s->A = calloc(s->A_len, sizeof(double));
@@ -52,33 +54,52 @@ void ss_res_free(ss_res_t *s)
 	free(s);
 }
 
-void ss_res_copymul(const ss_res_t * const dst, const ss_res_t * const src, const double p)
+ss_res_t * ss_res_copy(const ss_res_t * const src)
 {
-	int n, i;
-	n = src->A_len;
-	memcpy(dst->A, src->A, n * sizeof(double));
-	for (i = 0; i < n; i++)
-		if (dst->A[i])
-			dst->A[i] *= p;
-	n = src->D_len;
-	memcpy(dst->D, src->D, n * sizeof(double));
-	for (i = 0; i < n; i++)
-		if (dst->D[i])
-			dst->D[i] *= p;
+	ss_res_t *dst = malloc(sizeof(ss_res_t));
+	memcpy(dst, src, sizeof(ss_res_t));
+	dst->A = malloc(dst->A_len*sizeof(double));
+	memcpy(dst->A, src->A, dst->A_len*sizeof(double));
+	dst->D = malloc(dst->D_len*sizeof(double));
+	memcpy(dst->D, src->D, dst->D_len*sizeof(double));
+	return dst;
 }
 
-void ss_res_add(const ss_res_t * const sum, const ss_res_t * const term, const double p)
+void ss_res_mul(const ss_res_t * const s, const double p)
+{
+	int n, i;
+	n = s->A_len;
+	for (i = s->A_start; i < n; i++)
+		if (s->A[i])
+			s->A[i] *= p;
+	n = s->D_len;
+	for (i = s->D_start; i < n; i++)
+		if (s->D[i])
+			s->D[i] *= p;
+}
+
+static inline int max(int a, int b)
+{
+	return a > b ? a : b;
+}
+
+void ss_res_add(ss_res_t * const sum, const ss_res_t * const term, const double p)
 {
 	int i, n;
+	sum->A_len = max(sum->A_len, term->A_len);
+	sum->D_len = max(sum->D_len, term->D_len);
+	sum->A_start = min(sum->A_start, term->A_start);
+	sum->D_start = min(sum->D_start, term->D_start);
 	n = term->A_len;
-	for (i = 0; i < n; ++i)
+	for (i = term->A_start; i < n; ++i)
 		if (term->A[i])
 			sum->A[i] += term->A[i] * p;
 	n = term->D_len;
-	for (i = 0; i < n; ++i)
+	for (i = term->D_start; i < n; ++i)
 		if (term->D[i])
 			sum->D[i] += term->D[i] * p;
 }
+
 static sa_cache_t * sa_c_new(const attacker_t A, const defender_t D)
 {
 	sa_cache_t *c;
@@ -131,6 +152,8 @@ static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, ss_res_t *
 	const int Na_in = A->n;
 	const int Nd_in = D->n;
 	const int hp_in = D->hp_remaining;
+	ss_res->A_len = 1;
+	ss_res->D_len = 1;
 	for (; p1; p1 = free_p_element(p1)) {
 		A->n = p1->Na;
 		D->n = p1->Nd;
@@ -152,20 +175,29 @@ static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t * const c)
 	if ((r_out = sa_c_get(A, D, c)))
 		return r_out;
 
-	r_out = new_ss_res(A, D);
 	if (D->n == 0) {
+		r_out = new_ss_res(A, D);
 		r_out->A[A->n] = 1;
+		r_out->A_start = A->n;
+		r_out->D_start = r_out->D_len;
 		sa_c_put(A, D, r_out, c);
 		return r_out;
 	}
 	if (A->n == 0) {
-		r_out->D[D->n * r_out->D_hp_step + D->hp_remaining/r_out->hp_delta] = 1;
+		r_out = new_ss_res(A, D);
+		int Di = D->n * r_out->D_hp_step + D->hp_remaining/r_out->hp_delta;
+		r_out->D[Di] = 1;
+		r_out->A_start = r_out->A_len;
+		r_out->D_start = Di;
 		sa_c_put(A, D, r_out, c);
 		return r_out;
 	}
 
 	plist_t *sure_kill = kill_defenders(A, D);
 	if (sure_kill) {
+		r_out = new_ss_res(A, D);
+		r_out->A_start = r_out->A_len;
+		r_out->D_start = r_out->D_len;
 		for_each_sub_sim(sure_kill, A, D, r_out, c);
 		sa_c_put(A, D, r_out, c);
 		return r_out;
@@ -180,15 +212,15 @@ static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t * const c)
 		D->n = Dn_in - 1;
 		D->hp_remaining = D->n ? D->hp : 0;
 		r1 = sim_attacks(A, D, c);
-		memcpy(r_out->A, r1->A, r1->A_len * sizeof(double));
-		memcpy(r_out->D, r1->D, r1->D_len * sizeof(double));
+		r_out = ss_res_copy(r1);
 		goto sa_out;
 	} else {
 		D->n = Dn_in;
 		D->hp_remaining = hp_in - A->dmg_min;
 
 		r1 = sim_attacks(A, D, c);
-		ss_res_copymul(r_out, r1, 1 - A->accuracy);
+		r_out = ss_res_copy(r1);
+		ss_res_mul(r_out, 1 - A->accuracy);
 	}
 	// High dmg prob branch
 	if (hp_in > A->dmg_max) {

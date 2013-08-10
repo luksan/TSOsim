@@ -108,18 +108,13 @@ int main(int argc, char **argv)
 		.hp_remaining = 40,
 	};
 	plist_t *p;
-	parray_t pa;
-	//pa = kill_one_defender(&A, &D);
-	//pa = attack_one_defender(&A, &D);
-	//print_parray(pa);
+
 	p = sim(&A, &D);
-	//sim_dmg_max(&A, &D);
-	print_plist(p);
-	for (int i = 0; i < 2; i++) {
-		//p = sim(&A, &D);
-		//p = kill_defenders(&A, &D);
-		
-		//plist_free(p);
+	//print_plist(p);
+
+	for (int i = 0; i < 2000; i++) {
+		p = sim(&A, &D);
+		plist_free(p);
 	}
 	printf("OK\n");
 	return 0;

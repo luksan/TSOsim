@@ -26,7 +26,9 @@ typedef struct ss_res_ {
 	double * D;
 	int hp_delta;
 	int D_hp_step;
+	int A_start;
 	int A_len;
+	int D_start;
 	int D_len;
 } ss_res_t;
 
