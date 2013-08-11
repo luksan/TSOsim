@@ -23,7 +23,14 @@ typedef struct defender *defender_t;
 
 plist_t * sim(attacker_t A, defender_t D);
 
-/* sim_sub() */
+/*
+ * sim_sub()
+ *
+ * The D vector is indexed as defenders remaining*hp_step + hp_delta*n,
+ * where hp_delta*n is the amount of damage inflicted on the topmost defender.
+ *
+ */
+
 typedef struct ss_res_ {
 	int hp_delta;
 	int D_hp_step;
@@ -31,6 +38,7 @@ typedef struct ss_res_ {
 	int A_len;
 	int D_start;
 	int D_len;
+	int zero_kill_hp_offset;
 	double *A;
 	double D[];
 } ss_res_t;

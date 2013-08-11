@@ -33,7 +33,7 @@ void ss_res_free(ss_res_t *s);
 
 plist_t * sim(attacker_t A, defender_t D)
 {
-	int i, j;
+	int i;
 	plist_t *ret, *p, **pnext;
 	
 	ss_res_t *ss_res;
@@ -43,7 +43,7 @@ plist_t * sim(attacker_t A, defender_t D)
 	ss_res = sim_one_strike_attacks(A, D);
 #endif
 	pnext = &ret;
-	for (i = A->n; i >= 0; i--) {
+	for (i = ss_res->A_start; i < ss_res->A_len; ++i) {
 		if (ss_res->A[i] == 0)
 			continue;
 		*pnext = p = new_plist();
@@ -54,17 +54,19 @@ plist_t * sim(attacker_t A, defender_t D)
 		p->hp_remaining = 0;
 	}
 
-	for (i = 0; i <= D->n; i++) {
-		for (j = 0; j < ss_res->D_hp_step; j++){
-			if (!ss_res->D[i*ss_res->D_hp_step+j])
-				continue;
-			*pnext = p = new_plist();
-			pnext = &p->next;
-			p->Na = 0;
-			p->Nd = i;
-			p->p = ss_res->D[i*ss_res->D_hp_step+j];
-			p->hp_remaining = D->hp - (ss_res->D_hp_step-j-1)*ss_res->hp_delta;
-		}
+	for (i = ss_res->D_start; i < ss_res->D_len; ++i) {
+		if (!ss_res->D[i])
+			continue;
+		int Nd = i/ss_res->D_hp_step;
+		int hpr = D->hp - (i - Nd * ss_res->D_hp_step) * ss_res->hp_delta;
+		*pnext = p = new_plist();
+		pnext = &p->next;
+		p->Na = 0;
+		p->Nd = Nd;
+		p->p = ss_res->D[i];
+		p->hp_remaining = hpr;
+		if (p->Nd == D->n)
+			p->hp_remaining -= ss_res->zero_kill_hp_offset;
 	}
 	*pnext = NULL;
 	ss_res_free(ss_res);
@@ -105,16 +107,16 @@ int main(int argc, char **argv)
 	struct defender D = {
 		.n = 100,
 		.hp = 40,
-		.hp_remaining = 40,
+		.hp_remaining = 33,
 	};
 	plist_t *p;
 
 	p = sim(&A, &D);
-	//print_plist(p);
+	print_plist(p);
 
 	for (int i = 0; i < 2000; i++) {
-		p = sim(&A, &D);
-		plist_free(p);
+		//p = sim(&A, &D);
+		//plist_free(p);
 	}
 	printf("OK\n");
 	return 0;

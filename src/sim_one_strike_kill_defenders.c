@@ -42,7 +42,8 @@ static void sim_sub(attacker_t A, defender_t D, double p_in, ss_res_t * const ss
 		return;
 	}
 	if (A->n == 0) {
-		ss_res->D[D->n*ss_res->D_hp_step + D->hp_remaining/ss_res->hp_delta] += p_in;
+		int Di = D->n * ss_res->D_hp_step + (D->hp - D->hp_remaining) / ss_res->hp_delta;
+		ss_res->D[Di] += p_in;
 		return;
 	}
 
@@ -117,6 +118,7 @@ void kd_cache_free(struct kd_cache *c)
 	int i;
 	for (i = 0; i < MAX_UNITS; ++i)
 		free(c->p1[i]);
+	free(c->p0);
 	free(c);
 }
 

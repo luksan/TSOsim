@@ -148,7 +148,7 @@ LINK.cxx    = $(CXX) $(MY_CFLAGS) $(CXXFLAGS) $(CPPFLAGS) $(LDFLAGS)
 all: $(PROGRAM)
 
 valgrind: $(PROGRAM)
-	valgrind --leak-check=full ./$(PROGRAM)
+	valgrind --leak-check=full --track-origins=yes ./$(PROGRAM)
 
 time: $(PROGRAM)
 	/usr/bin/time ./$(PROGRAM)

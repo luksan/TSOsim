@@ -42,10 +42,11 @@ ss_res_t * new_ss_res(attacker_t A, defender_t D)
 	memset(s->D, 0, (A_len+D_len)*sizeof(double));
 	s->hp_delta = hp_delta;
 	s->D_hp_step = D_hp_step;
+	s->zero_kill_hp_offset = (D->hp - D->hp_remaining) - ((D->hp - D->hp_remaining) / hp_delta) * hp_delta;
 	s->A_start = 0;
 	s->D_start = 0;
 	s->A_len = A_len;
-	s->D_len =  D_len;
+	s->D_len = D_len;
 	s->A = s->D + D_len;
 	return s;
 }
@@ -63,6 +64,24 @@ ss_res_t * ss_res_copy(const ss_res_t * const src)
 	memcpy(dst, src, alloc);
 	dst->A = dst->D + dst->D_len;
 	return dst;
+}
+
+#include <stdio.h>
+void print_ss_res(const ss_res_t * const s)
+{
+	int i;
+	printf("HPd: %i, HPs: %i, zko: %i, As: %i, Alen: %i, Ds: %i, Dlen: %i\n",
+	       s->hp_delta, s->D_hp_step, s->zero_kill_hp_offset, s->A_start,
+		s->A_len, s->D_start, s->D_len);
+	for (i = s->A_start; i < s->A_len; ++i)
+		if (s->A[i])
+			printf("%i, 0, 0, %.3e\n", i, s->A[i]);
+	for (i = 0; i < s->D_len; ++i) {
+		int Dn = i / s->D_hp_step;
+		int dmg = (i - Dn*s->D_hp_step)*s->hp_delta;
+		if (s->D[i])
+			printf("0, %i, %i, %.3e\n", Dn, dmg, s->D[i]);
+	}
 }
 
 void ss_res_mul(ss_res_t * const s, const double p)
@@ -136,6 +155,7 @@ static void sa_c_put(attacker_t A, defender_t D, ss_res_t *r, sa_cache_t * const
 {
 	c->r[A->n * c->a_step + D->n * c->d_step + D->hp_remaining/c->hp_delta] = r;
 	//printf("PUT: Na %i, Nd %i, hp %i\n", A->n, D->n, D->hp_remaining);
+	//print_ss_res(r);
 }
 
 // Transfers ownership of the ss_res memory to the caller
@@ -155,8 +175,8 @@ static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, ss_res_t *
 	const int Na_in = A->n;
 	const int Nd_in = D->n;
 	const int hp_in = D->hp_remaining;
-	ss_res->A_len = 1;
-	ss_res->D_len = 1;
+	//ss_res->A_len = 1;
+	//ss_res->D_len = 1;
 	for (; p1; p1 = free_p_element(p1)) {
 		A->n = p1->Na;
 		D->n = p1->Nd;
@@ -173,8 +193,6 @@ static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t * const c)
 {
 	ss_res_t *r_out, *r1, *r2;
 
-	//printf("Na: %i, Nd: %i, hp: %i\n", A->n, D->n, D->hp_remaining);
-
 	if ((r_out = sa_c_get(A, D, c)))
 		return r_out;
 
@@ -188,7 +206,7 @@ static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t * const c)
 	}
 	if (A->n == 0) {
 		r_out = new_ss_res(A, D);
-		int Di = D->n * r_out->D_hp_step + D->hp_remaining/r_out->hp_delta;
+		int Di = D->n * r_out->D_hp_step + (D->hp - D->hp_remaining) / r_out->hp_delta;
 		r_out->D[Di] = 1;
 		r_out->A_start = r_out->A_len;
 		r_out->D_start = Di;
@@ -208,7 +226,7 @@ static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t * const c)
 
 	const int hp_in = D->hp_remaining;
 	const int Dn_in = D->n;
-	A->n--;
+	const int An_in = A->n--;
 
 	// Low dmg prob branch
 	if (hp_in <= A->dmg_min) {
@@ -220,10 +238,7 @@ static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t * const c)
 	} else {
 		D->n = Dn_in;
 		D->hp_remaining = hp_in - A->dmg_min;
-
 		r1 = sim_attacks(A, D, c);
-		r_out = ss_res_copy(r1);
-		ss_res_mul(r_out, 1 - A->accuracy);
 	}
 	// High dmg prob branch
 	if (hp_in > A->dmg_max) {
@@ -234,10 +249,15 @@ static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t * const c)
 		D->hp_remaining = D->n ? D->hp : 0;
 	}
 	r2 = sim_attacks(A, D, c);
+
+	D->n = r1->D_len/r1->D_hp_step -1;
+	A->n = r2->A_len-1;
+	r_out = new_ss_res(A, D);
+	ss_res_add(r_out, r1, 1 - A->accuracy);
 	ss_res_add(r_out, r2, A->accuracy);
 
 sa_out:
-	A->n++;
+	A->n = An_in;
 	D->n = Dn_in;
 	D->hp_remaining = hp_in;
 
