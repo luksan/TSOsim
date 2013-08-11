@@ -109,6 +109,7 @@ static sa_cache_t * sa_c_new(const attacker_t A, const defender_t D)
 	c->a_step = c->d_step * (D->n + 1);
 	c->len = c->a_step * (A->n + 1);
 	c->r = calloc(c->len, sizeof(ss_res_t*));
+	c->kd_c = kd_cache_new();
 	return c;
 }
 
@@ -118,6 +119,7 @@ void sa_c_free(sa_cache_t *c)
 	for (i = 0; i < c->len; i++)
 		ss_res_free(c->r[i]);
 	free(c->r);
+	kd_cache_free(c->kd_c);
 	free(c);
 }
 
@@ -193,7 +195,7 @@ static ss_res_t * sim_attacks(attacker_t A, defender_t D, sa_cache_t * const c)
 		return r_out;
 	}
 
-	plist_t *sure_kill = kill_defenders(A, D);
+	plist_t *sure_kill = kill_defenders(A, D, c->kd_c);
 	if (sure_kill) {
 		r_out = new_ss_res(A, D);
 		r_out->A_start = r_out->A_len;

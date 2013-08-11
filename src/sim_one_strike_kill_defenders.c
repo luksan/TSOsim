@@ -16,10 +16,15 @@ static plist_t * attack_one_defender(attacker_t A, defender_t D);
 typedef unsigned long ULONG;
 static ULONG binomial(int n, int k);
 
+static struct kd_cache * kd_c;
+
 ss_res_t * sim_one_strike_kill_defenders(attacker_t A, defender_t D)
 {
 	ss_res_t *ss_res = new_ss_res(A, D);
+	kd_c = kd_cache_new();
 	sim_sub(A, D, 1, ss_res);
+	kd_cache_free(kd_c);
+	kd_c = NULL;
 	return ss_res;
 }
 
@@ -47,7 +52,7 @@ static void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res
 		for_each_sub_sim(p1, A, D, p_in, ss_res);
 		return;
 	}
-	p1 = kill_defenders(A, D);
+	p1 = kill_defenders(A, D, kd_c);
 	if (sk == D->n) { //all defenders are sure to be killed
 		for (p2 = p1; p2; p2 = p2->next)
 			ss_res->A[p2->Na] += p2->p*p_in;
@@ -94,23 +99,32 @@ typedef struct { // used in kill_defenders()
 	double p;
 } p_term;
 
+struct kd_cache {
+	p_term *p0;
+	int p0_len;
+	double *p1[MAX_UNITS];
+	int p1_len[MAX_UNITS];
+};
+
+struct kd_cache * kd_cache_new()
+{
+	struct kd_cache *c = calloc(1, sizeof(struct kd_cache));
+	return c;
+}
+
+void kd_cache_free(struct kd_cache *c)
+{
+	int i;
+	for (i = 0; i < MAX_UNITS; ++i)
+		free(c->p1[i]);
+	free(c);
+}
 
 static int kill_defenders_get_p0(attacker_t A, defender_t D, p_term **p0, int *p0_len)
 {
 	parray_t kill_prob;
 	int i;
 
-	static int dmg_max, dmg_min, hp;
-	static double accuracy;
-	static int cache_len;
-	static p_term *cache;
-	if (A->dmg_max == dmg_max && A->dmg_min == dmg_min &&
-		A->accuracy == accuracy && D->hp == hp && cache) {
-		*p0 = cache;
-		*p0_len = cache_len;
-		return 0;
-	}
-	free(cache);
 	kill_prob = kill_one_defender(A, D);
 	if (!kill_prob)
 		return -1;
@@ -124,13 +138,6 @@ static int kill_defenders_get_p0(attacker_t A, defender_t D, p_term **p0, int *p
 		}
 	}
 	parray_free(kill_prob);
-	free(cache);
-	cache = *p0;
-	cache_len = *p0_len;
-	dmg_max = A->dmg_max;
-	dmg_min = A->dmg_min;
-	hp = D->hp;
-	accuracy = A->accuracy;
 	return 0;
 }
 
@@ -192,25 +199,26 @@ static void poly_pow(const p_term p[], const int p_len, int b, double result[], 
  * Remove defenders that will die for sure, due to number of attackers
  * Return list of {attackers remaining, prob}
  */
-plist_t * kill_defenders(attacker_t A, defender_t D)
+plist_t * kill_defenders(attacker_t A, defender_t D, struct kd_cache *c)
 {
-	int dloss, p1_i, p0_len, p1_len;
-	p_term *p0;
-
+	int dloss, p1_i, p1_len;
+	double *p1;
 	dloss = sure_kills(A, D);
 	if (!dloss || D->hp != D->hp_remaining)
 		return NULL;
 
-	if (kill_defenders_get_p0(A, D, &p0, &p0_len) < 0)
+	if (!c->p0 && kill_defenders_get_p0(A, D, &(c->p0), &(c->p0_len)) < 0)
 		return NULL;
 
-	const int alloc = p0[p0_len-1].n * dloss + 1;
-	double p1[alloc];
-	memset(p1, 0, alloc*sizeof(double));
-
-	poly_pow(p0, p0_len, dloss, p1, &p1_len);
+	if (!c->p1[dloss-1]) {
+		const int alloc = c->p0[c->p0_len-1].n * dloss + 1;
+		c->p1[dloss-1] = calloc(alloc, sizeof(double));
+		poly_pow(c->p0, c->p0_len, dloss, c->p1[dloss-1], &(c->p1_len[dloss-1]));
+	}
 
 	plist_t *p_out = NULL;
+	p1 = c->p1[dloss-1];
+	p1_len = c->p1_len[dloss-1];
 	for (p1_i = 0; p1_i < p1_len; p1_i++) {
 		if (p1[p1_i] == 0)
 			continue;
