@@ -25,14 +25,14 @@ plist_t * sim(attacker_t A, defender_t D);
 
 /* sim_sub() */
 typedef struct ss_res_ {
-	double * A;
-	double * D;
 	int hp_delta;
 	int D_hp_step;
 	int A_start;
 	int A_len;
 	int D_start;
 	int D_len;
+	double *A;
+	double D[];
 } ss_res_t;
 
 ss_res_t * new_ss_res(attacker_t A, defender_t D);

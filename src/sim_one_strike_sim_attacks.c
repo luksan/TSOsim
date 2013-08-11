@@ -34,38 +34,38 @@ static int min_hp_change(attacker_t A)
 
 ss_res_t * new_ss_res(attacker_t A, defender_t D)
 {
-	ss_res_t * s = malloc(sizeof(ss_res_t));
-	s->hp_delta = min_hp_change(A);
-	s->D_hp_step = D->hp/s->hp_delta + 1;
+	int hp_delta = min_hp_change(A);
+	int D_hp_step = D->hp/hp_delta + 1;
+	int A_len = A->n + 1;
+	int D_len = (D->n+1) * D_hp_step;
+	ss_res_t * s = malloc(sizeof(ss_res_t)+(A_len+D_len)*sizeof(double));
+	memset(s->D, 0, (A_len+D_len)*sizeof(double));
+	s->hp_delta = hp_delta;
+	s->D_hp_step = D_hp_step;
 	s->A_start = 0;
 	s->D_start = 0;
-	s->A_len = A->n+1;
-	s->D_len = (D->n+1) * s->D_hp_step;
-	s->A = calloc(s->A_len, sizeof(double));
-	s->D = calloc(s->D_len, sizeof(double));
+	s->A_len = A_len;
+	s->D_len =  D_len;
+	s->A = s->D + D_len;
 	return s;
 }
 
 void ss_res_free(ss_res_t *s)
 {
 	if (!s) return;
-	free(s->A);
-	free(s->D);
 	free(s);
 }
 
 ss_res_t * ss_res_copy(const ss_res_t * const src)
 {
-	ss_res_t *dst = malloc(sizeof(ss_res_t));
-	memcpy(dst, src, sizeof(ss_res_t));
-	dst->A = malloc(dst->A_len*sizeof(double));
-	memcpy(dst->A, src->A, dst->A_len*sizeof(double));
-	dst->D = malloc(dst->D_len*sizeof(double));
-	memcpy(dst->D, src->D, dst->D_len*sizeof(double));
+	int alloc = sizeof(ss_res_t) + (src->A_len+src->D_len)*sizeof(double);
+	ss_res_t *dst = malloc(alloc);
+	memcpy(dst, src, alloc);
+	dst->A = dst->D + dst->D_len;
 	return dst;
 }
 
-void ss_res_mul(const ss_res_t * const s, const double p)
+void ss_res_mul(ss_res_t * const s, const double p)
 {
 	int n, i;
 	n = s->A_len;
@@ -117,7 +117,8 @@ void sa_c_free(sa_cache_t *c)
 {
 	int i;
 	for (i = 0; i < c->len; i++)
-		ss_res_free(c->r[i]);
+		if (c->r[i])
+			ss_res_free(c->r[i]);
 	free(c->r);
 	kd_cache_free(c->kd_c);
 	free(c);

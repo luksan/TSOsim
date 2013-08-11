@@ -7,8 +7,8 @@
 #define SWAP_PTRS(a, b) do { void *t = (a); (a) = (b); (b) = t; } while (0)
 
 static parray_t kill_one_defender(attacker_t A, defender_t D);
-static void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
-static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res);
+static void sim_sub(attacker_t A, defender_t D, double p_in, ss_res_t * const ss_res);
+static void for_each_sub_sim(plist_t* p1, attacker_t A, defender_t D, double p_in, ss_res_t * const ss_res);
 static int sure_kills(attacker_t A, defender_t D);
 static void attack_one_defender1(const int n_sure_kill, attacker_t A, const int hp, parray_t parr);
 static plist_t * attack_one_defender(attacker_t A, defender_t D);
@@ -33,7 +33,7 @@ static inline int min(int a, int b)
 	return a < b ? a : b;
 }
 
-static void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res)
+static void sim_sub(attacker_t A, defender_t D, double p_in, ss_res_t * const ss_res)
 {
 	int sk;
 	plist_t *p1 = NULL, *p2;
@@ -61,7 +61,7 @@ static void sim_sub(attacker_t A, defender_t D, double p_in, const struct ss_res
 		for_each_sub_sim(p1, A, D, p_in, ss_res);
 }
 
-static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in, const struct ss_res_ *ss_res)
+static void for_each_sub_sim(plist_t *p1, attacker_t A, defender_t D, double p_in, ss_res_t * const ss_res)
 {
 	int Na_in, Nd_in, hp_in;
 	Na_in = A->n;
